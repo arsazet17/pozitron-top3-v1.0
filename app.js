@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.8';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -16,12 +16,27 @@ let toastTimer;
 let syncInProgress = false;
 let autoCheckTimer = null;
 let syncStatus = loadSyncStatus();
+let storageReady = false;
+let eventsBound = false;
+
+const VERIFIED_CORRECTIONS = [
+  { id:267356, date:'30.07.26', time:'09:40', a:8, b:8, c:3 },
+  { id:267355, date:'30.07.26', time:'07:40', a:6, b:3, c:8 }
+];
 
 const $ = (id) => document.getElementById(id);
 const qsa = (sel) => [...document.querySelectorAll(sel)];
 
+function withTimeout(promise, ms, label='Операция') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label}: превышено время ожидания`)), ms))
+  ]);
+}
+
 function openDB() {
   return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return reject(new Error('IndexedDB не поддерживается'));
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const database = request.result;
@@ -29,8 +44,13 @@ function openDB() {
         database.createObjectStore(STORE, { keyPath: 'id' });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => database.close();
+      resolve(database);
+    };
+    request.onerror = () => reject(request.error || new Error('Не удалось открыть базу'));
+    request.onblocked = () => reject(new Error('База заблокирована другой вкладкой'));
   });
 }
 
@@ -50,30 +70,51 @@ async function countDB() {
   });
 }
 
+function seedObjects() {
+  const seed = Array.isArray(window.TOP3_SEED) ? window.TOP3_SEED : [];
+  const map = new Map(seed.map(row => [Number(row[0]), {
+    id:Number(row[0]), date:String(row[1]), time:String(row[2]),
+    a:Number(row[3]), b:Number(row[4]), c:Number(row[5])
+  }]));
+  for (const item of VERIFIED_CORRECTIONS) map.set(item.id, { ...item });
+  return [...map.values()].sort((a,b) => b.id-a.id);
+}
+
 async function seedDatabase(force = false) {
+  if (!db) throw new Error('Локальная база не открыта');
   if (!Array.isArray(window.TOP3_SEED)) throw new Error('Встроенный архив не найден');
-  const existing = await countDB();
+  const existing = await withTimeout(countDB(), 6000, 'Проверка базы');
   if (existing && !force) return;
-  $('loadingText').textContent = `Сохраняю ${window.TOP3_SEED.length.toLocaleString('ru-RU')} тиражей…`;
   if (force) {
     const clearTx = db.transaction(STORE, 'readwrite');
     clearTx.objectStore(STORE).clear();
-    await txDone(clearTx);
+    await withTimeout(txDone(clearTx), 6000, 'Очистка базы');
   }
+  const rows = seedObjects();
+  const batchSize = 500;
+  for (let offset=0; offset<rows.length; offset+=batchSize) {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    for (const row of rows.slice(offset, offset+batchSize)) store.put(row);
+    await withTimeout(txDone(tx), 12000, 'Сохранение архива');
+  }
+}
+
+async function applyVerifiedCorrections() {
+  if (!db) return;
   const tx = db.transaction(STORE, 'readwrite');
   const store = tx.objectStore(STORE);
-  for (const row of window.TOP3_SEED) {
-    store.put({ id: row[0], date: row[1], time: row[2], a: row[3], b: row[4], c: row[5] });
-  }
-  await txDone(tx);
+  for (const row of VERIFIED_CORRECTIONS) store.put({ ...row });
+  await withTimeout(txDone(tx), 6000, 'Исправление проверенных тиражей');
 }
 
 async function loadAllDraws() {
-  const result = await new Promise((resolve, reject) => {
+  if (!db) return;
+  const result = await withTimeout(new Promise((resolve, reject) => {
     const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error || new Error('Не удалось прочитать базу'));
+  }), 12000, 'Чтение архива');
   draws = result.sort((x, y) => y.id - x.id);
 }
 
@@ -99,6 +140,7 @@ async function addNewDrawsOnly(items) {
   }
   const fresh = [...unique.values()].sort((a,b) => a.id - b.id);
   if (!fresh.length) return { added: 0, skipped: items.length };
+  if (!db || !storageReady) throw new Error('Локальная база ещё не готова. Повтори действие через несколько секунд.');
   const tx = db.transaction(STORE, 'readwrite');
   const store = tx.objectStore(STORE);
   for (const d of fresh) store.add(d);
@@ -782,30 +824,53 @@ function bindEvents() {
   });
 }
 
-async function start() {
+async function initializeStorage() {
+  try {
+    db = await withTimeout(openDB(), 6000, 'Открытие базы');
+    const existing = await withTimeout(countDB(), 6000, 'Проверка базы');
+    if (!existing) await seedDatabase(false);
+    await applyVerifiedCorrections();
+    await loadAllDraws();
+    storageReady = true;
+    renderAll();
+    startAutoChecks();
+    setTimeout(() => checkOnlineDraws({silent:true}), 1000);
+  } catch (error) {
+    storageReady = false;
+    console.error('Ошибка локальной базы:', error);
+    saveSyncStatus({
+      state:'error',
+      source:'Встроенный архив',
+      message:`Приложение открыто на встроенном архиве. Локальная база временно недоступна: ${error?.message || 'ошибка'}.`
+    });
+  }
+}
+
+function start() {
   const versionNode = document.querySelector('.version');
   if (versionNode) versionNode.textContent = `v${APP_VERSION}`;
-  try {
-    db=await openDB();
-    await seedDatabase();
-    await loadAllDraws();
+
+  // Главное правило запуска: интерфейс показывается сразу из встроенного архива.
+  // IndexedDB и интернет никогда не должны удерживать бесконечную заставку.
+  draws = seedObjects();
+  if (!eventsBound) {
     bindEvents();
     initializeAnalysisTools();
-    renderAll();
-    $('loading').classList.add('hidden');
-    startAutoChecks();
-    setTimeout(()=>checkOnlineDraws({silent:true}),800);
-  } catch (error) {
-    console.error(error);
-    $('loadingText').textContent='Ошибка загрузки базы. Закрой приложение и открой снова.';
+    eventsBound = true;
   }
+  renderAll();
+  const loading = $('loading');
+  if (loading) loading.classList.add('hidden');
+
+  initializeStorage();
+
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=1.0.3', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./sw.js', { updateViaCache:'none' })
       .then(async reg => {
         await reg.update();
-        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
       })
-      .catch(console.error);
+      .catch(error => console.warn('Service Worker не зарегистрирован:', error));
   }
 }
 

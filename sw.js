@@ -1,28 +1,20 @@
-const CACHE_NAME = 'yulia-top3-v1-0-3-clean-start';
-const OFFLINE_INDEX = './index.html';
-const APP_SHELL = [
-  './index.html',
-  './styles.css?v=1.0.3',
-  './app.js?v=1.0.3',
-  './top3-data.js',
-  './manifest.webmanifest',
-  './icon-top3-yulia-v1.png',
-  './icon-192.png',
-  './icon-512.png'
+const CACHE_NAME = 'yulia-top3-v1-0-8';
+const OFFLINE_URL = './index.html';
+const ASSETS = [
+  './index.html', './styles.css?v=1.0.8', './app.js?v=1.0.8',
+  './top3-data.js?v=1.0.8', './manifest.webmanifest',
+  './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await Promise.all(APP_SHELL.map(async url => {
-      const request = new Request(url, { cache: 'reload' });
-      const response = await fetch(request);
-      if (!response.ok) throw new Error(`Не удалось закэшировать ${url}: ${response.status}`);
-      await cache.put(url, response);
-      if (url === './index.html') await cache.put(OFFLINE_INDEX, response.clone());
+    await Promise.allSettled(ASSETS.map(async url => {
+      const response = await fetch(new Request(url, {cache:'reload'}));
+      if (response.ok) await cache.put(url, response.clone());
     }));
+    self.skipWaiting();
   })());
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
@@ -34,50 +26,29 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-
-  if (url.origin !== self.location.origin) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.endsWith('/sw.js')) return;
 
-  if (event.request.mode === 'navigate') {
+  const isNavigation = event.request.mode === 'navigate';
+  const isCode = ['script','style'].includes(event.request.destination) || url.pathname.endsWith('.webmanifest');
+  if (isNavigation || isCode) {
     event.respondWith((async () => {
       try {
-        const response = await fetch(event.request, { cache: 'no-store' });
-        if (response.ok) {
-          const cache = await caches.open(CACHE_NAME);
-          await cache.put(OFFLINE_INDEX, response.clone());
-        }
-        return response;
-      } catch {
-        return (await caches.match(OFFLINE_INDEX)) || Response.error();
-      }
-    })());
-    return;
-  }
-
-  const destination = event.request.destination;
-  const mustBeFresh = destination === 'script' || destination === 'style' || url.pathname.endsWith('.webmanifest');
-
-  if (mustBeFresh) {
-    event.respondWith((async () => {
-      try {
-        const response = await fetch(event.request, { cache: 'no-store' });
+        const response = await fetch(event.request, {cache:'no-store'});
         if (response.ok) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(event.request, response.clone());
+          if (isNavigation) await cache.put(OFFLINE_URL, response.clone());
         }
         return response;
       } catch {
-        return (await caches.match(event.request)) || Response.error();
+        return (await caches.match(event.request)) || (isNavigation ? await caches.match(OFFLINE_URL) : Response.error());
       }
     })());
     return;
@@ -87,10 +58,7 @@ self.addEventListener('fetch', event => {
     const cached = await caches.match(event.request);
     if (cached) return cached;
     const response = await fetch(event.request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      await cache.put(event.request, response.clone());
-    }
+    if (response.ok) (await caches.open(CACHE_NAME)).put(event.request, response.clone());
     return response;
   })());
 });
