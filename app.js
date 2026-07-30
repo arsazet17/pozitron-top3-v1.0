@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.8';
+const APP_VERSION = '1.0.9';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -562,40 +562,78 @@ function renderSyncStatus() {
   $('refreshBtn').classList.toggle('spinning', busy);
 }
 
+function digitsFromLuckyCells(cells, idIndex) {
+  const beforeId = cells.slice(0, idIndex);
+
+  // Формат Jina Reader: [Button: 8][Button: 8][Button: 3]
+  for (const cell of beforeId) {
+    const buttons = [...cell.matchAll(/\[Button:\s*([0-9])\]/gi)].map(match => Number(match[1]));
+    if (buttons.length === 3) return buttons;
+  }
+
+  // Другой формат конвертера: три цифры находятся в одной ячейке —
+  // «8 8 3», «883» или markdown-ссылки. Ячейки статистики вида
+  // «1 + 1 + 1» намеренно исключаются.
+  for (const cell of beforeId) {
+    if (cell.includes('+')) continue;
+    const cleaned = cell
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, ' ');
+    const spaced = cleaned.match(/(?:^|\D)([0-9])\D+([0-9])\D+([0-9])(?:\D|$)/);
+    if (spaced) return [Number(spaced[1]), Number(spaced[2]), Number(spaced[3])];
+    const compact = cleaned.replace(/\D/g, '');
+    if (/^[0-9]{3}$/.test(compact)) return [...compact].map(Number);
+  }
+
+  // Иногда каждая цифра становится отдельной ячейкой таблицы.
+  // Первую служебную ячейку с порядковым номером строки не берём.
+  const singleDigitCells = beforeId
+    .map((cell, index) => ({ cell: cell.trim(), index }))
+    .filter(({ cell }) => !cell.includes('+') && /^[0-9]$/.test(cell));
+  for (let i = 0; i <= singleDigitCells.length - 3; i++) {
+    const part = singleDigitCells.slice(i, i + 3);
+    if (part[1].index === part[0].index + 1 && part[2].index === part[1].index + 1) {
+      return part.map(item => Number(item.cell));
+    }
+  }
+
+  return null;
+}
+
 function parseLuckyArchive(text) {
   const normalized = String(text || '').replace(/\u00a0/g,' ');
   const found = new Map();
 
-  // Разбираем только полноценные строки таблицы архива:
-  // ровно три кнопки-цифры + шестизначный номер тиража + дата и время.
-  // Колонки между комбинацией и номером могут меняться (например, "1 + 1 + 1").
+  // Строка принимается только тогда, когда одновременно найдены:
+  // три цифры комбинации, шестизначный номер, дата и разрешённое время.
+  // Поддерживаются разные варианты markdown, которые выдаёт Jina Reader.
   for (const line of normalized.split(/\r?\n/)) {
     if (!line.includes('|')) continue;
-
-    const buttonMatches = [...line.matchAll(/\[Button:\s*([0-9])\]/g)];
-    if (buttonMatches.length !== 3) continue;
-
+    const cells = line.split('|').map(cell => cell.trim());
     const dateTime = line.match(/(\d{2}\.\d{2}\.\d{2,4})\s*,\s*(\d{1,2}:\d{2})/);
     if (!dateTime) continue;
 
-    const idCandidates = [...line.matchAll(/\|\s*((?:[0-9]\s*){6})\s*(?=\|)/g)]
-      .map(match => Number(match[1].replace(/\s/g,'')))
-      .filter(id => Number.isInteger(id) && id >= 100000 && id <= 999999);
-    if (!idCandidates.length) continue;
+    const idIndex = cells.findIndex(cell => {
+      const compact = cell.replace(/\s/g, '');
+      return /^[0-9]{6}$/.test(compact);
+    });
+    if (idIndex < 0) continue;
+
+    const digits = digitsFromLuckyCells(cells, idIndex);
+    if (!digits || digits.length !== 3) continue;
 
     const item = {
-      id: idCandidates.at(-1),
+      id: Number(cells[idIndex].replace(/\s/g,'')),
       date: normalizeDate(dateTime[1]),
       time: normalizeTime(dateTime[2]),
-      a: Number(buttonMatches[0][1]),
-      b: Number(buttonMatches[1][1]),
-      c: Number(buttonMatches[2][1])
+      a: digits[0], b: digits[1], c: digits[2]
     };
-
     if (isValidDraw(item) && DRAW_TIMES.includes(item.time)) found.set(item.id,item);
   }
 
-  // Запасной строгий разбор сырой HTML-таблицы.
+  // Запасной разбор сырой HTML-таблицы. Берём цифры только из строки,
+  // где находятся номер тиража и дата, чтобы не захватить кнопки генератора.
   if (!found.size && /<html|<table|<tr/i.test(normalized)) {
     try {
       const doc = new DOMParser().parseFromString(normalized,'text/html');
@@ -603,18 +641,25 @@ function parseLuckyArchive(text) {
         const txt = row.textContent.replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
         const dateTime = txt.match(/(\d{2}\.\d{2}\.\d{2,4})\s*,\s*(\d{1,2}:\d{2})/);
         const idMatch = txt.match(/(?:^|\s)(\d{3}\s?\d{3})(?:\s|$)/);
-        const buttons = [...row.querySelectorAll('button')]
+        if (!dateTime || !idMatch) continue;
+
+        let digits = [...row.querySelectorAll('button')]
           .map(button => button.textContent.trim())
-          .filter(value => /^[0-9]$/.test(value));
-        if (!dateTime || !idMatch || buttons.length !== 3) continue;
+          .filter(value => /^[0-9]$/.test(value))
+          .map(Number);
+
+        if (digits.length !== 3) {
+          const cells = [...row.querySelectorAll('td,th')].map(cell => cell.textContent.trim());
+          const idIndex = cells.findIndex(cell => /^[0-9]{6}$/.test(cell.replace(/\s/g,'')));
+          digits = idIndex >= 0 ? digitsFromLuckyCells(cells, idIndex) : null;
+        }
+        if (!digits || digits.length !== 3) continue;
 
         const item = {
           id: Number(idMatch[1].replace(/\s/g,'')),
           date: normalizeDate(dateTime[1]),
           time: normalizeTime(dateTime[2]),
-          a: Number(buttons[0]),
-          b: Number(buttons[1]),
-          c: Number(buttons[2])
+          a: digits[0], b: digits[1], c: digits[2]
         };
         if (isValidDraw(item) && DRAW_TIMES.includes(item.time)) found.set(item.id,item);
       }
@@ -640,8 +685,11 @@ async function fetchTextWithTimeout(url, timeoutMs = 25000) {
 
 async function fetchLuckyDraws() {
   const stamp = Date.now();
+  const target = new URL(LUCKY_ARCHIVE_URL);
+  const targetPath = `${target.host}${target.pathname}?positron=${stamp}`;
   const sources = [
-    { name:'Lucky Numbers через Jina Reader', url:`https://r.jina.ai/http://${new URL(LUCKY_ARCHIVE_URL).host}${new URL(LUCKY_ARCHIVE_URL).pathname}?positron=${stamp}` },
+    { name:'Lucky Numbers через Jina Reader HTTPS', url:`https://r.jina.ai/https://${targetPath}` },
+    { name:'Lucky Numbers через Jina Reader HTTP', url:`https://r.jina.ai/http://${targetPath}` },
     { name:'Lucky Numbers напрямую', url:`${LUCKY_ARCHIVE_URL}?positron=${stamp}` }
   ];
   const errors=[];
