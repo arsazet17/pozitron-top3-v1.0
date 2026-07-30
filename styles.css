@@ -28,12 +28,14 @@ body {
 button,input,select { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 .loading {
-  position: fixed; inset: 0; z-index: 1000; display: grid; place-content: center; justify-items: center; gap: 12px;
-  background: linear-gradient(180deg,#071b4d,#030817); text-align: center; padding: 24px;
+  position: fixed; top: calc(72px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  z-index: 1000; display: flex; align-items: center; gap: 9px; max-width: calc(100% - 28px);
+  padding: 9px 14px; border: 1px solid rgba(65,211,255,.28); border-radius: 999px;
+  background: rgba(3,8,23,.94); box-shadow: 0 12px 34px rgba(0,0,0,.34); color: var(--muted);
+  font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.loading img { width: 104px; border-radius: 28px; box-shadow: 0 0 38px rgba(54,216,255,.35); }
-.loading strong { font-size: 25px; }
-.loading span { color: var(--muted); }
+.loading-spinner { width: 15px; height: 15px; flex: 0 0 15px; border: 2px solid rgba(65,211,255,.22); border-top-color: var(--cyan); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .loading.hidden { display: none; }
 .topbar {
   position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between;

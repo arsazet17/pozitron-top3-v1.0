@@ -8,16 +8,25 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.2 — поиск и цепочки</title>
+  <title>Yulia TOP-3 v1.0.3 — архив, поиск и цепочки</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=1.0.2">
+  <link rel="stylesheet" href="styles.css?v=1.0.3">
+  <script>
+    window.TOP3_BUILD = '1.0.3';
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (sessionStorage.getItem('top3-sw-reloaded') === '1') return;
+        sessionStorage.setItem('top3-sw-reloaded', '1');
+        location.reload();
+      });
+    }
+  </script>
 </head>
 <body>
   <div id="loading" class="loading" role="status" aria-live="polite">
-    <img src="icon-192.png" alt="">
-    <strong>Yulia TOP-3</strong>
+    <span class="loading-spinner" aria-hidden="true"></span>
     <span id="loadingText">Загружаю архив тиражей…</span>
   </div>
 
@@ -26,7 +35,7 @@
       <img src="icon-192.png" alt="Логотип Yulia TOP-3">
       <div>
         <h1>Yulia TOP-3</h1>
-        <p><span class="version">v1.0.2</span> <span id="dbBadge">База загружается…</span></p>
+        <p><span class="version">v1.0.3</span> <span id="dbBadge">База загружается…</span></p>
       </div>
     </div>
     <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
@@ -231,6 +240,6 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="top3-data.js"></script>
-  <script src="app.js?v=1.0.2"></script>
+  <script src="app.js?v=1.0.3"></script>
 </body>
 </html>

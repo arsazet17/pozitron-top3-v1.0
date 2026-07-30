@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.0.3';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -732,7 +732,12 @@ async function start() {
     $('loadingText').textContent='Ошибка загрузки базы. Закрой приложение и открой снова.';
   }
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then(reg=>reg.update()).catch(console.error);
+    navigator.serviceWorker.register('./sw.js?v=1.0.3', { updateViaCache: 'none' })
+      .then(async reg => {
+        await reg.update();
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      })
+      .catch(console.error);
   }
 }
 

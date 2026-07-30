@@ -1,37 +1,96 @@
-const CACHE_NAME = 'yulia-top3-v1-0-2-search-chains';
+const CACHE_NAME = 'yulia-top3-v1-0-3-clean-start';
+const OFFLINE_INDEX = './index.html';
 const APP_SHELL = [
-  './','./index.html','./styles.css?v=1.0.2','./app.js?v=1.0.2','./top3-data.js','./manifest.webmanifest',
-  './icon-top3-yulia-v1.png','./icon-192.png','./icon-512.png'
+  './index.html',
+  './styles.css?v=1.0.3',
+  './app.js?v=1.0.3',
+  './top3-data.js',
+  './manifest.webmanifest',
+  './icon-top3-yulia-v1.png',
+  './icon-192.png',
+  './icon-512.png'
 ];
+
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await Promise.all(APP_SHELL.map(async url => {
+      const request = new Request(url, { cache: 'reload' });
+      const response = await fetch(request);
+      if (!response.ok) throw new Error(`Не удалось закэшировать ${url}: ${response.status}`);
+      await cache.put(url, response);
+      if (url === './index.html') await cache.put(OFFLINE_INDEX, response.clone());
+    }));
+  })());
   self.skipWaiting();
 });
+
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))));
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
+
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
-  const requestUrl = new URL(event.request.url);
+  const url = new URL(event.request.url);
 
-  // Внешние запросы к источнику тиражей всегда идут в сеть и не попадают в PWA-кэш.
-  if (requestUrl.origin !== self.location.origin) {
+  if (url.origin !== self.location.origin) {
     event.respondWith(fetch(event.request));
     return;
   }
 
+  if (url.pathname.endsWith('/sw.js')) return;
+
   if (event.request.mode === 'navigate') {
-    event.respondWith(fetch(event.request).then(response => {
-      const copy=response.clone(); caches.open(CACHE_NAME).then(c=>c.put('./index.html',copy)); return response;
-    }).catch(()=>caches.match('./index.html')));
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(event.request, { cache: 'no-store' });
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(OFFLINE_INDEX, response.clone());
+        }
+        return response;
+      } catch {
+        return (await caches.match(OFFLINE_INDEX)) || Response.error();
+      }
+    })());
     return;
   }
-  event.respondWith(caches.match(event.request).then(cached => {
-    const network=fetch(event.request).then(response => {
-      if(response.ok){const copy=response.clone();caches.open(CACHE_NAME).then(c=>c.put(event.request,copy));}
-      return response;
-    }).catch(()=>cached);
-    return cached || network;
-  }));
+
+  const destination = event.request.destination;
+  const mustBeFresh = destination === 'script' || destination === 'style' || url.pathname.endsWith('.webmanifest');
+
+  if (mustBeFresh) {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(event.request, { cache: 'no-store' });
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(event.request, response.clone());
+        }
+        return response;
+      } catch {
+        return (await caches.match(event.request)) || Response.error();
+      }
+    })());
+    return;
+  }
+
+  event.respondWith((async () => {
+    const cached = await caches.match(event.request);
+    if (cached) return cached;
+    const response = await fetch(event.request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, response.clone());
+    }
+    return response;
+  })());
 });
