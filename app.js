@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.10';
+const APP_VERSION = '1.0.11';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -21,6 +21,10 @@ let storageReady = false;
 let eventsBound = false;
 
 const VERIFIED_CORRECTIONS = [
+  // Проверенные результаты, которыми можно безопасно исправить только эти
+  // конкретные записи в локальной базе. Остальные сохранённые тиражи не
+  // удаляются и не заменяются.
+  { id:267358, date:'30.07.26', time:'13:40', a:3, b:5, c:7 },
   { id:267356, date:'30.07.26', time:'09:40', a:8, b:8, c:3 },
   { id:267355, date:'30.07.26', time:'07:40', a:6, b:3, c:8 }
 ];

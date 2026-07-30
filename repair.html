@@ -1,1 +1,70 @@
-<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Обновление TOP-3</title><body style="font-family:system-ui;background:#030817;color:white;padding:28px"><h2>Обновляю Yulia TOP-3…</h2><p id="s">Очищаю только старый кэш приложения. База тиражей не удаляется.</p><script>(async()=>{try{for(const r of await navigator.serviceWorker?.getRegistrations?.()||[])await r.unregister();for(const k of await caches.keys())await caches.delete(k);document.getElementById('s').textContent='Готово. Открываю приложение…';setTimeout(()=>location.replace('./?v=1.0.8-repair'),700)}catch(e){document.getElementById('s').textContent='Открываю приложение…';setTimeout(()=>location.replace('./?v=1.0.8-repair'),700)}})()</script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#071b4d">
+  <title>Восстановление Yulia TOP-3</title>
+  <style>
+    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#030817;color:#fff}.card{width:min(560px,100%);padding:26px;border:1px solid #2e6c83;border-radius:24px;background:#071b4d;box-shadow:0 18px 60px #0008}h1{margin:0 0 14px;font-size:28px}.status{font-size:18px;line-height:1.55;color:#dcecff}.ok{color:#65e6a5}.error{color:#ffb1bd}button{width:100%;margin-top:18px;padding:16px;border:0;border-radius:16px;font-size:18px;font-weight:800;background:#63dcf1;color:#03152d}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Восстановление TOP-3</h1>
+    <p id="status" class="status">Исправляю только проверенный тираж №267358. Весь остальной архив сохраняется.</p>
+    <button id="openBtn" hidden>Открыть приложение</button>
+  </main>
+<script>
+'use strict';
+const DB_NAME='yulia-top3-db';
+const DB_VERSION=1;
+const STORE='draws';
+const CORRECTION={id:267358,date:'30.07.26',time:'13:40',a:3,b:5,c:7};
+const status=document.getElementById('status');
+const openBtn=document.getElementById('openBtn');
+const openApp=()=>location.replace('./?v=1.0.11-repair');
+openBtn.addEventListener('click',openApp);
+
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(DB_NAME,DB_VERSION);
+    req.onupgradeneeded=()=>{
+      const database=req.result;
+      if(!database.objectStoreNames.contains(STORE)) database.createObjectStore(STORE,{keyPath:'id'});
+    };
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error||new Error('Не удалось открыть локальную базу'));
+  });
+}
+function saveCorrection(database){
+  return new Promise((resolve,reject)=>{
+    const tx=database.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).put({...CORRECTION});
+    tx.oncomplete=resolve;
+    tx.onerror=()=>reject(tx.error||new Error('Не удалось сохранить исправление'));
+    tx.onabort=()=>reject(tx.error||new Error('Исправление отменено'));
+  });
+}
+(async()=>{
+  try{
+    if(!('indexedDB' in window)) throw new Error('IndexedDB не поддерживается этим браузером');
+    const database=await openDB();
+    await saveCorrection(database);
+    database.close();
+    localStorage.removeItem('yulia-top3-auto-status-v1');
+    for(const registration of await navigator.serviceWorker?.getRegistrations?.()||[]) await registration.unregister();
+    for(const key of await caches.keys()) await caches.delete(key);
+    status.className='status ok';
+    status.textContent='Готово: тираж №267358 исправлен на 3–5–7. Остальные тиражи сохранены. Открываю приложение…';
+    openBtn.hidden=false;
+    setTimeout(openApp,1200);
+  }catch(error){
+    status.className='status error';
+    status.textContent='Не удалось выполнить восстановление: '+(error?.message||error)+'. Архив не удалялся.';
+    openBtn.hidden=false;
+  }
+})();
+</script>
+</body>
+</html>

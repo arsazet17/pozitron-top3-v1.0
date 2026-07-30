@@ -2,7 +2,7 @@
   "name": "Yulia TOP-3",
   "short_name": "TOP-3",
   "description": "Архив TOP-3 с общим автообновлением через GitHub, поиском по 1–3 цифрам и анализом цепочек.",
-  "start_url": "./?v=1.0.10",
+  "start_url": "./?v=1.0.11",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

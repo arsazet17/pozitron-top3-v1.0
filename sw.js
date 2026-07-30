@@ -1,9 +1,9 @@
-const CACHE_NAME = 'yulia-top3-v1-0-10';
+const CACHE_NAME = 'yulia-top3-v1-0-11';
 const OFFLINE_URL = './index.html';
 const LIVE_FILE = './top3-live.json';
 const ASSETS = [
-  './index.html', './styles.css?v=1.0.10', './app.js?v=1.0.10',
-  './top3-data.js?v=1.0.10', './manifest.webmanifest',
+  './index.html', './repair.html', './styles.css?v=1.0.11', './app.js?v=1.0.11',
+  './top3-data.js?v=1.0.11', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 
@@ -61,11 +61,14 @@ self.addEventListener('fetch', event => {
         if (response.ok) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(event.request, response.clone());
-          if (isNavigation) await cache.put(OFFLINE_URL, response.clone());
+          const isHome = url.pathname.endsWith('/') || url.pathname.endsWith('/index.html');
+          if (isNavigation && isHome) await cache.put(OFFLINE_URL, response.clone());
         }
         return response;
       } catch {
-        return (await caches.match(event.request)) || (isNavigation ? await caches.match(OFFLINE_URL) : Response.error());
+        const exact = await caches.match(event.request);
+        if (exact) return exact;
+        return isNavigation ? (await caches.match(OFFLINE_URL) || Response.error()) : Response.error();
       }
     })());
     return;
