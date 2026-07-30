@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.15';
+const APP_VERSION = '1.0.17';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -569,17 +569,16 @@ function renderAiInto(ids, time) {
   $(ids.columns).innerHTML = analysis.rankings.map((ranking, position) => {
     const candidates = ranking.slice(0,3);
     return `<article class="ai-column-card">
-      <span>${position + 1}-е поле перехода</span>
+      <span>ПОЛЕ ${position + 1}</span>
       <strong>${candidates[0].digit}</strong>
-      <div class="ai-candidates">${candidates.map((item,index) => `<b class="${index === 0 ? 'primary' : ''}">${item.digit}<small>${(item.probability*100).toFixed(1)}%</small></b>`).join('')}</div>
-      <em>резерв: ${candidates.slice(1).map(item => item.digit).join(', ')}</em>
+      <div class="ai-candidates">${candidates.map((item,index) => `<b class="ai-candidate ${index === 0 ? 'primary' : ''}"><span>${item.digit}</span><small>${(item.probability*100).toFixed(1)}%</small></b>`).join('')}</div>
     </article>`;
   }).join('');
   const test = analysis.backtest;
   if (!test) {
     $(ids.backtest).textContent = 'Для честного теста этого временного архива пока недостаточно истории.';
   } else {
-    $(ids.backtest).innerHTML = `<div class="ai-backtest-title"><span>Проверка модели ${time} без подглядывания</span><strong>${test.tested} переходов</strong></div>
+    $(ids.backtest).innerHTML = `<div class="ai-backtest-title"><span>Проверка модели ${time}</span><strong>${test.tested} переходов</strong></div>
       <div class="ai-metrics">
         <div><span>Хотя бы 1 точное поле</span><b>${pct(test.atLeastOneTop1,test.tested)}</b></div>
         <div><span>Хотя бы 2 точных поля</span><b>${pct(test.atLeastTwoTop1,test.tested)}</b></div>
