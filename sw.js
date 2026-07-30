@@ -1,9 +1,9 @@
-const CACHE_NAME = 'yulia-top3-v1-0-11';
+const CACHE_NAME = 'yulia-top3-v1-0-12';
 const OFFLINE_URL = './index.html';
 const LIVE_FILE = './top3-live.json';
 const ASSETS = [
-  './index.html', './repair.html', './styles.css?v=1.0.11', './app.js?v=1.0.11',
-  './top3-data.js?v=1.0.11', './manifest.webmanifest',
+  './index.html', './repair.html', './styles.css?v=1.0.12', './app.js?v=1.0.12',
+  './top3-data.js?v=1.0.12', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 

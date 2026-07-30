@@ -12,7 +12,7 @@
 <body>
   <main class="card">
     <h1>Восстановление TOP-3</h1>
-    <p id="status" class="status">Исправляю только проверенный тираж №267358. Весь остальной архив сохраняется.</p>
+    <p id="status" class="status">Проверяю только три строки, которые мог исказить старый общий файл. Остальной архив не меняется.</p>
     <button id="openBtn" hidden>Открыть приложение</button>
   </main>
 <script>
@@ -20,51 +20,24 @@
 const DB_NAME='yulia-top3-db';
 const DB_VERSION=1;
 const STORE='draws';
-const CORRECTION={id:267358,date:'30.07.26',time:'13:40',a:3,b:5,c:7};
+const BAD=new Map([
+  [267359,{a:3,b:4,c:6}],
+  [267358,{a:3,b:5,c:7}],
+  [267357,{a:3,b:6,c:7}]
+]);
+const VERIFIED=[
+  {id:267356,date:'30.07.26',time:'09:40',a:8,b:8,c:3},
+  {id:267355,date:'30.07.26',time:'07:40',a:6,b:3,c:8},
+  {id:267354,date:'30.07.26',time:'06:40',a:0,b:3,c:9}
+];
 const status=document.getElementById('status');
 const openBtn=document.getElementById('openBtn');
-const openApp=()=>location.replace('./?v=1.0.11-repair');
+const openApp=()=>location.replace('./?v=1.0.12-repair');
 openBtn.addEventListener('click',openApp);
-
-function openDB(){
-  return new Promise((resolve,reject)=>{
-    const req=indexedDB.open(DB_NAME,DB_VERSION);
-    req.onupgradeneeded=()=>{
-      const database=req.result;
-      if(!database.objectStoreNames.contains(STORE)) database.createObjectStore(STORE,{keyPath:'id'});
-    };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error||new Error('Не удалось открыть локальную базу'));
-  });
-}
-function saveCorrection(database){
-  return new Promise((resolve,reject)=>{
-    const tx=database.transaction(STORE,'readwrite');
-    tx.objectStore(STORE).put({...CORRECTION});
-    tx.oncomplete=resolve;
-    tx.onerror=()=>reject(tx.error||new Error('Не удалось сохранить исправление'));
-    tx.onabort=()=>reject(tx.error||new Error('Исправление отменено'));
-  });
-}
-(async()=>{
-  try{
-    if(!('indexedDB' in window)) throw new Error('IndexedDB не поддерживается этим браузером');
-    const database=await openDB();
-    await saveCorrection(database);
-    database.close();
-    localStorage.removeItem('yulia-top3-auto-status-v1');
-    for(const registration of await navigator.serviceWorker?.getRegistrations?.()||[]) await registration.unregister();
-    for(const key of await caches.keys()) await caches.delete(key);
-    status.className='status ok';
-    status.textContent='Готово: тираж №267358 исправлен на 3–5–7. Остальные тиражи сохранены. Открываю приложение…';
-    openBtn.hidden=false;
-    setTimeout(openApp,1200);
-  }catch(error){
-    status.className='status error';
-    status.textContent='Не удалось выполнить восстановление: '+(error?.message||error)+'. Архив не удалялся.';
-    openBtn.hidden=false;
-  }
-})();
+function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,DB_VERSION);req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Не удалось открыть локальную базу'));});}
+function reqResult(req){return new Promise((resolve,reject)=>{req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error);});}
+function txDone(tx){return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
+(async()=>{try{if(!('indexedDB'in window))throw new Error('IndexedDB не поддерживается этим браузером');const database=await openDB();const tx=database.transaction(STORE,'readwrite');const store=tx.objectStore(STORE);let removed=0;for(const [id,sig]of BAD){const row=await reqResult(store.get(id));if(row&&row.a===sig.a&&row.b===sig.b&&row.c===sig.c){store.delete(id);removed++;}}for(const row of VERIFIED)store.put({...row});await txDone(tx);database.close();localStorage.removeItem('yulia-top3-auto-status-v1');for(const registration of await navigator.serviceWorker?.getRegistrations?.()||[])await registration.unregister();for(const key of await caches.keys())await caches.delete(key);status.className='status ok';status.textContent=`Готово: удалено ошибочных строк — ${removed}. Проверенный архив сохранён. Открываю приложение…`;openBtn.hidden=false;setTimeout(openApp,1200);}catch(error){status.className='status error';status.textContent='Не удалось выполнить восстановление: '+(error?.message||error)+'. Архив не удалялся.';openBtn.hidden=false;}})();
 </script>
 </body>
 </html>
