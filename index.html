@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.4 — архив, поиск и цепочки</title>
+  <title>Yulia TOP-3 v1.0.7 — архив, поиск и цепочки</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=1.0.3">
+  <link rel="stylesheet" href="styles.css?v=1.0.7">
   <script>
-    window.TOP3_BUILD = '1.0.3';
+    window.TOP3_BUILD = '1.0.7';
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (sessionStorage.getItem('top3-sw-reloaded') === '1') return;
@@ -35,7 +35,7 @@
       <img src="icon-192.png" alt="Логотип Yulia TOP-3">
       <div>
         <h1>Yulia TOP-3</h1>
-        <p><span class="version">v1.0.4</span> <span id="dbBadge">База загружается…</span></p>
+        <p><span class="version">v1.0.7</span> <span id="dbBadge">База загружается…</span></p>
       </div>
     </div>
     <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
@@ -239,74 +239,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="top3-data.js"></script>
-  <script>
-    // Одноразовая безопасная очистка двух ошибочно распознанных строк.
-    // Основной app.js загружается только после завершения проверки IndexedDB.
-    (() => {
-      const loadApp = () => {
-        const script = document.createElement('script');
-        script.src = 'app.js?v=1.0.4-force-db-repair-2';
-        script.onerror = () => {
-          const loadingText = document.getElementById('loadingText');
-          if (loadingText) loadingText.textContent = 'Не удалось загрузить app.js. Проверь интернет и открой приложение снова.';
-        };
-        document.body.appendChild(script);
-      };
-
-      if (!('indexedDB' in window)) {
-        loadApp();
-        return;
-      }
-
-      let finished = false;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        try { localStorage.removeItem('yulia-top3-bad-lucky-rows-repaired-v1.0.4'); } catch {}
-        loadApp();
-      };
-
-      const request = indexedDB.open('yulia-top3-db', 1);
-      request.onupgradeneeded = () => {
-        const database = request.result;
-        if (!database.objectStoreNames.contains('draws')) {
-          database.createObjectStore('draws', { keyPath: 'id' });
-        }
-      };
-      request.onerror = finish;
-      request.onsuccess = () => {
-        const database = request.result;
-        let transaction;
-        try {
-          transaction = database.transaction('draws', 'readwrite');
-        } catch {
-          database.close();
-          finish();
-          return;
-        }
-
-        const store = transaction.objectStore('draws');
-        const badRows = [
-          [267355, '000'],
-          [267356, '111']
-        ];
-
-        for (const [id, badCode] of badRows) {
-          const getRequest = store.get(id);
-          getRequest.onsuccess = () => {
-            const row = getRequest.result;
-            if (row && `${row.a}${row.b}${row.c}` === badCode) store.delete(id);
-          };
-        }
-
-        transaction.oncomplete = () => { database.close(); finish(); };
-        transaction.onerror = () => { database.close(); finish(); };
-        transaction.onabort = () => { database.close(); finish(); };
-      };
-
-      setTimeout(finish, 6000);
-    })();
-  </script>
+  <script src="top3-data.js?v=1.0.7"></script>
+  <script src="app.js?v=1.0.7"></script>
 </body>
 </html>
