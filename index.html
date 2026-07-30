@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.8 — архив, поиск и цепочки</title>
+  <title>Yulia TOP-3 v1.0.10 — архив, поиск и цепочки</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=1.0.8">
+  <link rel="stylesheet" href="styles.css?v=1.0.10">
   <script>
-    window.TOP3_BUILD = '1.0.8';
+    window.TOP3_BUILD = '1.0.10';
 </script>
 </head>
 <body>
@@ -28,7 +28,7 @@
       <img src="icon-192.png" alt="Логотип Yulia TOP-3">
       <div>
         <h1>Yulia TOP-3</h1>
-        <p><span class="version">v1.0.8</span> <span id="dbBadge">База загружается…</span></p>
+        <p><span class="version">v1.0.10</span> <span id="dbBadge">База загружается…</span></p>
       </div>
     </div>
     <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
@@ -59,9 +59,9 @@
         <div class="sync-grid">
           <div><span>Последняя проверка</span><strong id="syncLastCheck">Ещё не выполнялась</strong></div>
           <div><span>Последнее успешное обновление</span><strong id="syncLastSuccess">—</strong></div>
-          <div><span>Источник</span><strong id="syncSource">Lucky Numbers</strong></div>
+          <div><span>Источник</span><strong id="syncSource">GitHub TOP-3 Live</strong></div>
         </div>
-        <p id="syncMessage" class="sync-message">При открытии приложения проверю новые тиражи. Затем — каждые 15 минут, пока приложение открыто.</p>
+        <p id="syncMessage" class="sync-message">Свежие тиражи берутся из общего файла GitHub. Проверка — при открытии и каждые 5 минут.</p>
         <button id="onlineUpdateBtn" class="primary-btn" type="button">Обновить сейчас</button>
       </section>
 
@@ -232,7 +232,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="top3-data.js?v=1.0.8"></script>
-  <script src="app.js?v=1.0.8"></script>
+  <script src="top3-data.js?v=1.0.10"></script>
+  <script src="app.js?v=1.0.10"></script>
 </body>
 </html>

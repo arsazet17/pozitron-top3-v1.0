@@ -1,13 +1,14 @@
 'use strict';
 
-const APP_VERSION = '1.0.9';
+const APP_VERSION = '1.0.10';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
 const DRAW_TIMES = ['02:40','04:40','06:40','07:40','09:40','11:40','13:40','16:25','21:25','22:40'];
-const AUTO_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const AUTO_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_STATUS_KEY = 'yulia-top3-auto-status-v1';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
+const LIVE_DATA_URL = './top3-live.json';
 
 let db;
 let draws = [];
@@ -525,9 +526,9 @@ async function refreshFromDB(message) {
 
 function loadSyncStatus() {
   try {
-    return { state:'idle', message:'', source:'Lucky Numbers', ...JSON.parse(localStorage.getItem(AUTO_STATUS_KEY) || '{}') };
+    return { state:'idle', message:'', source:'GitHub TOP-3 Live', ...JSON.parse(localStorage.getItem(AUTO_STATUS_KEY) || '{}') };
   } catch {
-    return { state:'idle', message:'', source:'Lucky Numbers' };
+    return { state:'idle', message:'', source:'GitHub TOP-3 Live' };
   }
 }
 
@@ -552,8 +553,8 @@ function renderSyncStatus() {
   $('syncState').className = `sync-badge ${syncStatus.state || 'idle'}`;
   $('syncLastCheck').textContent = syncStatus.lastAttempt ? formatDateTime(syncStatus.lastAttempt) : 'Ещё не выполнялась';
   $('syncLastSuccess').textContent = syncStatus.lastSuccess ? formatDateTime(syncStatus.lastSuccess) : '—';
-  $('syncSource').textContent = syncStatus.source || 'Lucky Numbers';
-  $('syncMessage').textContent = syncStatus.message || 'При открытии приложения проверю новые тиражи. Затем — каждые 15 минут, пока приложение открыто.';
+  $('syncSource').textContent = syncStatus.source || 'GitHub TOP-3 Live';
+  $('syncMessage').textContent = syncStatus.message || 'Свежие тиражи берутся из общего файла GitHub. Проверка — при открытии и каждые 5 минут.';
   const busy = syncStatus.state === 'checking';
   for (const id of ['refreshBtn','onlineUpdateBtn','dataOnlineUpdateBtn']) {
     const button = $(id);
@@ -684,26 +685,30 @@ async function fetchTextWithTimeout(url, timeoutMs = 25000) {
 }
 
 async function fetchLuckyDraws() {
-  const stamp = Date.now();
-  const target = new URL(LUCKY_ARCHIVE_URL);
-  const targetPath = `${target.host}${target.pathname}?positron=${stamp}`;
-  const sources = [
-    { name:'Lucky Numbers через Jina Reader HTTPS', url:`https://r.jina.ai/https://${targetPath}` },
-    { name:'Lucky Numbers через Jina Reader HTTP', url:`https://r.jina.ai/http://${targetPath}` },
-    { name:'Lucky Numbers напрямую', url:`${LUCKY_ARCHIVE_URL}?positron=${stamp}` }
-  ];
-  const errors=[];
-  for (const source of sources) {
-    try {
-      const text = await fetchTextWithTimeout(source.url);
-      const items = parseLuckyArchive(text);
-      if (!items.length) throw new Error('в ответе не найдены тиражи');
-      return { items, source:source.name };
-    } catch (error) {
-      errors.push(`${source.name}: ${error?.message || 'ошибка'}`);
-    }
+  const url = `${LIVE_DATA_URL}?t=${Date.now()}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(url, {
+      cache:'no-store',
+      signal:controller.signal,
+      headers:{'Accept':'application/json'}
+    });
+    if (!response.ok) throw new Error(`общий файл GitHub: HTTP ${response.status}`);
+    const payload = await response.json();
+    const items = Array.isArray(payload) ? payload : payload?.draws;
+    if (!Array.isArray(items) || !items.length) throw new Error('общий файл GitHub не содержит тиражей');
+    return {
+      items,
+      source: payload?.source || 'GitHub TOP-3 Live',
+      generatedAt: payload?.updatedAt || null
+    };
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('общий файл GitHub не ответил за 20 секунд');
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  throw new Error(errors.join('; '));
 }
 
 function sameDraw(a,b) {
@@ -735,9 +740,8 @@ function validateOnlineBatch(items) {
 
   const localLatest = draws[0]?.id || 0;
   const sourceLatest = Math.max(...valid.map(draw => draw.id));
-  if (localLatest && sourceLatest < localLatest) {
-    throw new Error(`источник ещё не догнал локальную базу: у него №${sourceLatest}, в приложении №${localLatest}`);
-  }
+  // Общий файл может на несколько минут отставать, пока cron-job запускает GitHub Action.
+  // Это не ошибка: локальная база не откатывается и сохранённые тиражи не заменяются.
   return valid;
 }
 
@@ -757,13 +761,16 @@ async function checkOnlineDraws({ manual=false, silent=false }={}) {
     const {added}=await addNewDrawsOnly(items);
     if (added) await refreshFromDB();
     const success=new Date().toISOString();
+    const localLatest=draws[0]?.id || 0;
     const message=added
       ? `Добавлено новых тиражей: ${added}. Последний найденный — №${sourceLatest}.`
-      : `Новых тиражей нет. Последний найденный — №${sourceLatest}.`;
+      : sourceLatest < localLatest
+        ? `Локальная база уже новее общего файла: №${localLatest}. Жду следующего запуска cron-job.`
+        : `Новых тиражей нет. Последний найденный — №${sourceLatest}.`;
     saveSyncStatus({state:'success',lastSuccess:success,source:result.source,lastAdded:added,sourceLatest,message});
     if (!silent || added) showToast(message);
   } catch (error) {
-    const message=`Автообновление не выполнено: ${error?.message || 'неизвестная ошибка'}. Локальная база сохранена.`;
+    const message=`Общий файл обновлений временно недоступен: ${error?.message || 'неизвестная ошибка'}. Локальная база сохранена.`;
     saveSyncStatus({state:'error',message});
     if (!silent || manual) showToast(message);
     console.warn(message,error);

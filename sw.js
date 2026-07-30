@@ -1,8 +1,9 @@
-const CACHE_NAME = 'yulia-top3-v1-0-8';
+const CACHE_NAME = 'yulia-top3-v1-0-10';
 const OFFLINE_URL = './index.html';
+const LIVE_FILE = './top3-live.json';
 const ASSETS = [
-  './index.html', './styles.css?v=1.0.8', './app.js?v=1.0.8',
-  './top3-data.js?v=1.0.8', './manifest.webmanifest',
+  './index.html', './styles.css?v=1.0.10', './app.js?v=1.0.10',
+  './top3-data.js?v=1.0.10', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 
@@ -34,6 +35,22 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.endsWith('/sw.js')) return;
+
+  const isLive = url.pathname.endsWith('/top3-live.json');
+  if (isLive) {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(event.request, {cache:'no-store'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(LIVE_FILE, response.clone());
+        return response;
+      } catch {
+        return (await caches.match(LIVE_FILE)) || Response.error();
+      }
+    })());
+    return;
+  }
 
   const isNavigation = event.request.mode === 'navigate';
   const isCode = ['script','style'].includes(event.request.destination) || url.pathname.endsWith('.webmanifest');
