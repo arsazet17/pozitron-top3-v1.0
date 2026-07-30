@@ -1,12 +1,13 @@
 'use strict';
 
-const APP_VERSION = '1.0.12';
+const APP_VERSION = '1.0.13';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
 const DRAW_TIMES = ['02:40','04:40','06:40','07:40','09:40','11:40','13:40','16:25','21:25','22:40'];
 const AUTO_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_STATUS_KEY = 'yulia-top3-auto-status-v1';
+const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
 
@@ -19,6 +20,8 @@ let autoCheckTimer = null;
 let syncStatus = loadSyncStatus();
 let storageReady = false;
 let eventsBound = false;
+let archiveMode = 'normal';
+let aiCache = null;
 
 const VERIFIED_CORRECTIONS = [
   // Эти строки уже есть во встроенном архиве и используются только для
@@ -181,6 +184,377 @@ function patternOf(d) {
   return 'три разные';
 }
 
+function mod10(value) {
+  return ((Number(value) % 10) + 10) % 10;
+}
+
+function digitsOf(draw) {
+  return draw ? [Number(draw.a), Number(draw.b), Number(draw.c)] : [0,0,0];
+}
+
+function codeOfDigits(values) {
+  return values.map(mod10).join('');
+}
+
+function mirrorDigit(value) {
+  return mod10(10 - Number(value));
+}
+
+function mirrorDigits(values) {
+  return values.map(mirrorDigit);
+}
+
+function positronDifference(older, newer) {
+  if (!older || !newer) return null;
+  const from = digitsOf(older);
+  const to = digitsOf(newer);
+  return to.map((value, index) => mod10(value - from[index]));
+}
+
+function archiveModeMeta(mode = archiveMode) {
+  const modes = {
+    normal: {
+      title: 'Обычный архив',
+      help: 'Показываются фактические комбинации из трёх независимых полей 0–9.'
+    },
+    'normal-diff': {
+      title: 'Обычный архив + разница',
+      help: 'Разница +Δ показывает покоординатный переход от предыдущего тиража к текущему по модулю 10.'
+    },
+    mirror: {
+      title: 'Зеркальный архив',
+      help: 'Каждое поле зеркалится отдельно: 0↔0, 1↔9, 2↔8, 3↔7, 4↔6, 5↔5.'
+    },
+    'mirror-diff': {
+      title: 'Зеркальный архив + разница',
+      help: 'Показаны зеркальные комбинации и зеркальная разница Позитронов для каждого перехода.'
+    }
+  };
+  return modes[mode] || modes.normal;
+}
+
+function renderArchiveDigits(values, extraClass = '') {
+  return `<div class="mini-digits ${extraClass}">${values.map(value => `<b>${mod10(value)}</b>`).join('')}</div>`;
+}
+
+function parseDrawDate(dateText) {
+  const match = String(dateText || '').match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+  if (!match) return null;
+  return new Date(Date.UTC(2000 + Number(match[3]), Number(match[2]) - 1, Number(match[1])));
+}
+
+function formatDrawDate(date) {
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const yy = String(date.getUTCFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
+}
+
+function nextDrawAfterLatest(latest) {
+  if (!latest) return { date:'—', time:'—', weekday:0 };
+  const currentMinutes = (() => {
+    const [h,m] = String(latest.time).split(':').map(Number);
+    return h * 60 + m;
+  })();
+  let nextTime = DRAW_TIMES.find(time => {
+    const [h,m] = time.split(':').map(Number);
+    return h * 60 + m > currentMinutes;
+  });
+  const date = parseDrawDate(latest.date) || new Date();
+  if (!nextTime) {
+    nextTime = DRAW_TIMES[0];
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return { date:formatDrawDate(date), time:nextTime, weekday:date.getUTCDay() };
+}
+
+function buildPositronTransitions(sourceDraws = draws) {
+  const ordered = [...sourceDraws].sort((a,b) => a.id - b.id);
+  const records = [];
+  for (let index = 1; index < ordered.length; index++) {
+    const previous = ordered[index - 1];
+    const current = ordered[index];
+    const delta = positronDifference(previous, current);
+    const date = parseDrawDate(current.date);
+    records.push({
+      previous,
+      current,
+      delta,
+      time:current.time,
+      weekday:date ? date.getUTCDay() : 0
+    });
+  }
+  return records;
+}
+
+function emptyDigitCounts() {
+  return Array(10).fill(0);
+}
+
+function incrementArray(array, digit) {
+  array[mod10(digit)] += 1;
+}
+
+function incrementMap(map, key, digit) {
+  const normalizedKey = String(key);
+  if (!map.has(normalizedKey)) map.set(normalizedKey, emptyDigitCounts());
+  incrementArray(map.get(normalizedKey), digit);
+}
+
+function createAiModel() {
+  return Array.from({length:3}, () => ({
+    global:emptyDigitCounts(),
+    time:new Map(),
+    weekday:new Map(),
+    source:new Map(),
+    timeSource:new Map(),
+    previousDelta:new Map(),
+    previousPair:new Map(),
+    previousFullDelta:new Map()
+  }));
+}
+
+function addAiRecord(model, records, index) {
+  const record = records[index];
+  if (!record) return;
+  const previousRecord = records[index - 1] || null;
+  const previousPreviousRecord = records[index - 2] || null;
+  for (let position = 0; position < 3; position++) {
+    const target = record.delta[position];
+    const sourceDigit = digitsOf(record.previous)[position];
+    const bucket = model[position];
+    incrementArray(bucket.global, target);
+    incrementMap(bucket.time, record.time, target);
+    incrementMap(bucket.weekday, record.weekday, target);
+    incrementMap(bucket.source, sourceDigit, target);
+    incrementMap(bucket.timeSource, `${record.time}|${sourceDigit}`, target);
+    if (previousRecord) {
+      incrementMap(bucket.previousDelta, previousRecord.delta[position], target);
+      incrementMap(bucket.previousFullDelta, codeOfDigits(previousRecord.delta), target);
+    }
+    if (previousRecord && previousPreviousRecord) {
+      incrementMap(bucket.previousPair, `${previousPreviousRecord.delta[position]}|${previousRecord.delta[position]}`, target);
+    }
+  }
+}
+
+function countsSupport(counts) {
+  return counts ? counts.reduce((sum, value) => sum + value, 0) : 0;
+}
+
+function smoothedProbability(counts, digit, alpha = 1) {
+  const support = countsSupport(counts);
+  return (Number(counts?.[digit] || 0) + alpha) / (support + alpha * 10);
+}
+
+function addEvidence(scores, counts, baseWeight, supportScale, alpha = 1) {
+  const support = countsSupport(counts);
+  if (!support) return;
+  const adaptiveWeight = baseWeight * Math.min(1, Math.log1p(support) / Math.log1p(supportScale));
+  for (let digit = 0; digit < 10; digit++) {
+    scores[digit] += adaptiveWeight * Math.log(smoothedProbability(counts, digit, alpha));
+  }
+}
+
+function recentCounts(records, position, count) {
+  const result = emptyDigitCounts();
+  records.slice(-count).forEach(record => incrementArray(result, record.delta[position]));
+  return result;
+}
+
+function normalizeScores(scores) {
+  const maximum = Math.max(...scores);
+  const exponentials = scores.map(score => Math.exp(score - maximum));
+  const sum = exponentials.reduce((total, value) => total + value, 0) || 1;
+  return exponentials.map(value => value / sum);
+}
+
+function predictAiPosition(model, records, position, context) {
+  const bucket = model[position];
+  const scores = Array(10).fill(0);
+  addEvidence(scores, bucket.global, 1.25, 5000, 1.2);
+  addEvidence(scores, bucket.time.get(String(context.time)), 0.65, 350, 1.4);
+  addEvidence(scores, bucket.weekday.get(String(context.weekday)), 0.22, 1200, 1.5);
+  addEvidence(scores, bucket.source.get(String(context.sourceDigits[position])), 0.70, 1800, 1.3);
+  addEvidence(scores, bucket.timeSource.get(`${context.time}|${context.sourceDigits[position]}`), 0.70, 160, 1.7);
+  if (context.previousRecord) {
+    addEvidence(scores, bucket.previousDelta.get(String(context.previousRecord.delta[position])), 0.78, 1800, 1.4);
+    addEvidence(scores, bucket.previousFullDelta.get(codeOfDigits(context.previousRecord.delta)), 0.34, 40, 2.2);
+  }
+  if (context.previousRecord && context.previousPreviousRecord) {
+    addEvidence(scores, bucket.previousPair.get(`${context.previousPreviousRecord.delta[position]}|${context.previousRecord.delta[position]}`), 0.65, 180, 2.0);
+  }
+  addEvidence(scores, recentCounts(records, position, 50), 0.52, 50, 1.8);
+  addEvidence(scores, recentCounts(records, position, 200), 0.38, 200, 1.5);
+  addEvidence(scores, recentCounts(records, position, 1000), 0.20, 1000, 1.3);
+  const probabilities = normalizeScores(scores);
+  return probabilities.map((probability, digit) => ({digit, probability}))
+    .sort((a,b) => b.probability - a.probability || a.digit - b.digit);
+}
+
+function predictAiTransition(model, records, context) {
+  return [0,1,2].map(position => predictAiPosition(model, records, position, context));
+}
+
+function globalAiRanking(model, position) {
+  const counts = model[position].global;
+  const support = countsSupport(counts);
+  return counts.map((count,digit) => ({
+    digit,
+    probability:(count + 1) / (support + 10)
+  })).sort((a,b) => b.probability - a.probability || a.digit - b.digit);
+}
+
+function aiMethodScore(methodStats, method, position) {
+  const seen = methodStats.seen[position] || 0;
+  if (!seen) return method === 'global' ? 0.0001 : 0;
+  return (methodStats[method].top1[position] + 0.22 * methodStats[method].top3[position]) / seen;
+}
+
+function chooseAiMethod(methodStats, position) {
+  return aiMethodScore(methodStats,'ensemble',position) > aiMethodScore(methodStats,'global',position)
+    ? 'ensemble'
+    : 'global';
+}
+
+function aiContextForNext(records, latest, next) {
+  return {
+    time:next.time,
+    weekday:next.weekday,
+    sourceDigits:digitsOf(latest),
+    previousRecord:records.at(-1) || null,
+    previousPreviousRecord:records.at(-2) || null
+  };
+}
+
+function aiContextForRecord(records, index) {
+  const record = records[index];
+  return {
+    time:record.time,
+    weekday:record.weekday,
+    sourceDigits:digitsOf(record.previous),
+    previousRecord:records[index - 1] || null,
+    previousPreviousRecord:records[index - 2] || null
+  };
+}
+
+function runAiBacktest(records, testSize = 600) {
+  if (records.length < 1200) return null;
+  const start = Math.max(700, records.length - testSize);
+  const model = createAiModel();
+  for (let index = 0; index < start; index++) addAiRecord(model, records, index);
+  const stats = {
+    tested:0,
+    fieldTop1:[0,0,0],
+    fieldTop3:[0,0,0],
+    atLeastOneTop1:0,
+    atLeastTwoTop1:0,
+    atLeastOneTop3:0,
+    atLeastTwoTop3:0
+  };
+  for (let index = start; index < records.length; index++) {
+    const recentHistory = records.slice(Math.max(0, index - 1000), index);
+    const predictions = predictAiTransition(model, recentHistory, aiContextForRecord(records, index));
+    let hitsTop1 = 0;
+    let hitsTop3 = 0;
+    predictions.forEach((ranking, position) => {
+      const target = records[index].delta[position];
+      if (ranking[0]?.digit === target) {
+        stats.fieldTop1[position] += 1;
+        hitsTop1 += 1;
+      }
+      if (ranking.slice(0,3).some(item => item.digit === target)) {
+        stats.fieldTop3[position] += 1;
+        hitsTop3 += 1;
+      }
+    });
+    if (hitsTop1 >= 1) stats.atLeastOneTop1 += 1;
+    if (hitsTop1 >= 2) stats.atLeastTwoTop1 += 1;
+    if (hitsTop3 >= 1) stats.atLeastOneTop3 += 1;
+    if (hitsTop3 >= 2) stats.atLeastTwoTop3 += 1;
+    stats.tested += 1;
+    addAiRecord(model, records, index);
+  }
+  return stats;
+}
+
+function buildAiAnalysis() {
+  const cacheKey = `${draws.length}|${draws[0]?.id || 0}|${drawCode(draws[0])}`;
+  if (aiCache?.key === cacheKey) return aiCache.value;
+  const records = buildPositronTransitions(draws);
+  if (!records.length || !draws[0]) return null;
+  const model = createAiModel();
+  records.forEach((_, index) => addAiRecord(model, records, index));
+  const next = nextDrawAfterLatest(draws[0]);
+  const rankings = predictAiTransition(model, records, aiContextForNext(records, draws[0], next));
+  const primaryDelta = rankings.map(ranking => ranking[0].digit);
+  const predictedDigits = digitsOf(draws[0]).map((digit, index) => mod10(digit + primaryDelta[index]));
+  const backtest = runAiBacktest(records, Math.min(600, Math.max(300, Math.floor(records.length * 0.04))));
+  const value = {records, next, rankings, primaryDelta, predictedDigits, backtest};
+  aiCache = {key:cacheKey, value};
+  return value;
+}
+
+function pct(value, total, digits = 1) {
+  return total ? `${(value / total * 100).toFixed(digits)}%` : '—';
+}
+
+function aiSignalInfo(analysis) {
+  const probabilities = analysis.rankings.map(ranking => ranking[0]?.probability || 0);
+  const gaps = analysis.rankings.map(ranking => (ranking[0]?.probability || 0) - (ranking[1]?.probability || 0));
+  const averageProbability = probabilities.reduce((sum, value) => sum + value, 0) / 3;
+  const averageGap = gaps.reduce((sum, value) => sum + value, 0) / 3;
+  if (averageProbability >= 0.17 && averageGap >= 0.035) return {label:'Повышенный сигнал',className:'strong'};
+  if (averageProbability >= 0.135 && averageGap >= 0.018) return {label:'Средний сигнал',className:'medium'};
+  return {label:'Слабый сигнал',className:'weak'};
+}
+
+function renderAiPanel() {
+  const contextNode = $('aiContext');
+  if (!contextNode) return;
+  const analysis = buildAiAnalysis();
+  if (!analysis) {
+    contextNode.textContent = 'Недостаточно данных для расчёта.';
+    $('aiMainPrediction').innerHTML = '';
+    $('aiColumnPredictions').innerHTML = '';
+    $('aiBacktest').innerHTML = '';
+    return;
+  }
+  const latest = draws[0];
+  const signal = aiSignalInfo(analysis);
+  const badge = $('aiSignalBadge');
+  badge.textContent = signal.label;
+  badge.className = `ai-signal ${signal.className}`;
+  contextNode.innerHTML = `<div><span>Последний факт</span><strong>№${latest.id} · ${drawCode(latest)}</strong></div><div><span>Цель модели</span><strong>${analysis.next.date} · ${analysis.next.time}</strong></div>`;
+  const mirrorDelta = mirrorDigits(analysis.primaryDelta);
+  $('aiMainPrediction').innerHTML = `
+    <div class="ai-main-block"><span>Основной переход</span><strong>+${codeOfDigits(analysis.primaryDelta)}</strong><small>зеркало +${codeOfDigits(mirrorDelta)}</small></div>
+    <div class="ai-main-arrow">→</div>
+    <div class="ai-main-block result"><span>Расчётная комбинация</span><strong>${codeOfDigits(analysis.predictedDigits)}</strong><small>${drawCode(latest)} + ${codeOfDigits(analysis.primaryDelta)} по модулю 10</small></div>`;
+  $('aiColumnPredictions').innerHTML = analysis.rankings.map((ranking, position) => {
+    const candidates = ranking.slice(0,3);
+    const main = candidates[0];
+    return `<article class="ai-column-card">
+      <span>${position + 1}-е поле перехода</span>
+      <strong>${main.digit}</strong>
+      <div class="ai-candidates">${candidates.map((item,index) => `<b class="${index === 0 ? 'primary' : ''}">${item.digit}<small>${(item.probability*100).toFixed(1)}%</small></b>`).join('')}</div>
+    </article>`;
+  }).join('');
+  const test = analysis.backtest;
+  if (!test) {
+    $('aiBacktest').textContent = 'Для честного теста пока недостаточно истории.';
+  } else {
+    $('aiBacktest').innerHTML = `<div class="ai-backtest-title"><span>Проверка без подглядывания</span><strong>${test.tested} последних переходов</strong></div>
+      <div class="ai-metrics">
+        <div><span>Хотя бы 1 точное поле</span><b>${pct(test.atLeastOneTop1,test.tested)}</b></div>
+        <div><span>Хотя бы 2 точных поля</span><b>${pct(test.atLeastTwoTop1,test.tested)}</b></div>
+        <div><span>1 поле в тройке кандидатов</span><b>${pct(test.atLeastOneTop3,test.tested)}</b></div>
+        <div><span>2 поля в тройке кандидатов</span><b>${pct(test.atLeastTwoTop3,test.tested)}</b></div>
+      </div>`;
+  }
+}
+
+
 function drawCard(d, index) {
   if (!d) return '';
   const repeat = index > 0 && draws[index - 1]
@@ -221,15 +595,49 @@ function renderHome() {
   }
   $('nextDraw').textContent = nextMoscowDraw();
   renderSyncStatus();
+  renderAiPanel();
 }
 
 function renderArchive(reset = false) {
   if (reset) archiveShown = Number($('archiveLimit').value) || 50;
-  const term = $('archiveSearch').value.trim().toLowerCase();
-  const filtered = term ? draws.filter(d => String(d.id).includes(term) || d.date.includes(term) || `${d.a}${d.b}${d.c}`.includes(term)) : draws;
+  const term = $('archiveSearch').value.trim().toLowerCase().replace(/^\+/, '');
+  const indexById = new Map(draws.map((draw,index) => [draw.id,index]));
+  const searchable = draw => {
+    const index = indexById.get(draw.id);
+    const older = Number.isInteger(index) ? draws[index + 1] : null;
+    const normal = digitsOf(draw);
+    const mirror = mirrorDigits(normal);
+    const delta = positronDifference(older, draw);
+    const mirrorDelta = delta ? mirrorDigits(delta) : null;
+    return [draw.id, draw.date, draw.time, codeOfDigits(normal), codeOfDigits(mirror), delta ? codeOfDigits(delta) : '', mirrorDelta ? codeOfDigits(mirrorDelta) : '']
+      .some(value => String(value).toLowerCase().includes(term));
+  };
+  const filtered = term ? draws.filter(searchable) : draws;
   const visible = filtered.slice(0, archiveShown);
-  $('archiveInfo').textContent = `${filtered.length.toLocaleString('ru-RU')} тиражей найдено`;
-  $('archiveList').innerHTML = visible.map(d=>`<article class="archive-row"><div><h4>№ ${d.id}</h4><p>${d.date} · ${d.time} · ${patternOf(d)}</p></div><div class="mini-digits"><b>${d.a}</b><b>${d.b}</b><b>${d.c}</b></div></article>`).join('');
+  const meta = archiveModeMeta();
+  $('archiveInfo').textContent = `${filtered.length.toLocaleString('ru-RU')} тиражей · ${meta.title}`;
+  $('archiveModeHelp').textContent = meta.help;
+  qsa('.archive-mode-btn').forEach(button => button.classList.toggle('active', button.dataset.archiveMode === archiveMode));
+  $('archiveList').innerHTML = visible.map(draw => {
+    const index = indexById.get(draw.id);
+    const older = Number.isInteger(index) ? draws[index + 1] : null;
+    const normal = digitsOf(draw);
+    const delta = positronDifference(older, draw);
+    const isMirror = archiveMode.startsWith('mirror');
+    const showDifference = archiveMode.endsWith('diff');
+    const displayedDigits = isMirror ? mirrorDigits(normal) : normal;
+    const displayedDelta = delta ? (isMirror ? mirrorDigits(delta) : delta) : null;
+    const sourceText = showDifference && older
+      ? `переход от №${older.id}`
+      : patternOf(draw);
+    return `<article class="archive-row ${showDifference ? 'with-difference' : ''}">
+      <div class="archive-row-info"><h4>№ ${draw.id}</h4><p>${draw.date} · ${draw.time} · ${sourceText}</p></div>
+      <div class="archive-values">
+        ${renderArchiveDigits(displayedDigits, isMirror ? 'mirror-digits' : '')}
+        ${showDifference ? `<div class="positron-difference ${displayedDelta ? '' : 'empty'}"><span>Δ</span><strong>${displayedDelta ? `+${codeOfDigits(displayedDelta)}` : '—'}</strong></div>` : ''}
+      </div>
+    </article>`;
+  }).join('');
   $('loadMoreBtn').hidden = visible.length >= filtered.length;
 }
 
@@ -859,7 +1267,13 @@ function bindEvents() {
   $('dataOnlineUpdateBtn').addEventListener('click',()=>checkOnlineDraws({manual:true}));
   $('archiveSearch').addEventListener('input',()=>renderArchive(true));
   $('archiveLimit').addEventListener('change',()=>renderArchive(true));
+  qsa('.archive-mode-btn').forEach(button => button.addEventListener('click', () => {
+    archiveMode = button.dataset.archiveMode || 'normal';
+    try { localStorage.setItem(ARCHIVE_MODE_KEY, archiveMode); } catch {}
+    renderArchive(true);
+  }));
   $('loadMoreBtn').addEventListener('click',()=>{ archiveShown+=Number($('archiveLimit').value)||50; renderArchive(); });
+  $('aiRecalcBtn').addEventListener('click',()=>{ aiCache=null; renderAiPanel(); showToast('ИИ-модель пересчитана на текущем архиве'); });
   $('analysisRange').addEventListener('change',renderAnalysis);
   $('digitSearchLength').addEventListener('change',()=>updateDigitSearchControls({keepValues:true}));
   $('digitSearchForm').addEventListener('submit',e=>{e.preventDefault();renderDigitSearch();});
@@ -928,6 +1342,10 @@ async function initializeStorage() {
 }
 
 function start() {
+  try {
+    const savedMode = localStorage.getItem(ARCHIVE_MODE_KEY);
+    if (['normal','normal-diff','mirror','mirror-diff'].includes(savedMode)) archiveMode = savedMode;
+  } catch {}
   const versionNode = document.querySelector('.version');
   if (versionNode) versionNode.textContent = `v${APP_VERSION}`;
 

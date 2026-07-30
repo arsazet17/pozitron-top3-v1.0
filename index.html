@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.12 — архив, поиск и цепочки</title>
+  <title>Yulia TOP-3 v1.0.13 — Позитроны, зеркальный архив и ИИ</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=1.0.12">
+  <link rel="stylesheet" href="styles.css?v=1.0.13">
   <script>
-    window.TOP3_BUILD = '1.0.12';
+    window.TOP3_BUILD = '1.0.13';
 </script>
 </head>
 <body>
@@ -28,7 +28,7 @@
       <img src="icon-192.png" alt="Логотип Yulia TOP-3">
       <div>
         <h1>Yulia TOP-3</h1>
-        <p><span class="version">v1.0.12</span> <span id="dbBadge">База загружается…</span></p>
+        <p><span class="version">v1.0.13</span> <span id="dbBadge">База загружается…</span></p>
       </div>
     </div>
     <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
@@ -67,6 +67,22 @@
 
       <div id="latestCards" class="latest-grid"></div>
 
+      <section class="panel ai-panel" aria-labelledby="aiTitle">
+        <div class="section-head ai-head">
+          <div>
+            <span class="eyebrow">ЭКСПЕРИМЕНТАЛЬНАЯ МОДЕЛЬ</span>
+            <h3 id="aiTitle">ИИ Позитрон — следующий переход</h3>
+          </div>
+          <span id="aiSignalBadge" class="ai-signal weak">Слабый сигнал</span>
+        </div>
+        <p class="panel-note">Модель отдельно оценивает три поля перехода по модулю 10. Она использует время следующего тиража, предыдущие переходы, исходные цифры и частоты в нескольких окнах. Это аналитический эксперимент, а не гарантия результата.</p>
+        <div id="aiContext" class="ai-context"></div>
+        <div id="aiMainPrediction" class="ai-main-prediction"></div>
+        <div id="aiColumnPredictions" class="ai-columns"></div>
+        <div id="aiBacktest" class="ai-backtest"></div>
+        <button id="aiRecalcBtn" class="secondary-btn wide" type="button">Пересчитать ИИ-модель</button>
+      </section>
+
       <section class="panel quick-panel">
         <div class="section-head">
           <div>
@@ -104,8 +120,23 @@
         <h2 id="archiveTitle">Архив тиражей</h2>
         <p id="archiveInfo">—</p>
       </div>
+      <section class="panel archive-mode-panel" aria-labelledby="archiveModeTitle">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">РЕЖИМ АРХИВА</span>
+            <h3 id="archiveModeTitle">Комбинации и Позитроны</h3>
+          </div>
+        </div>
+        <div class="archive-mode-grid" role="group" aria-label="Режим отображения архива">
+          <button class="archive-mode-btn active" data-archive-mode="normal" type="button">Обычный архив</button>
+          <button class="archive-mode-btn" data-archive-mode="normal-diff" type="button">Обычный + разница</button>
+          <button class="archive-mode-btn" data-archive-mode="mirror" type="button">Зеркальный архив</button>
+          <button class="archive-mode-btn" data-archive-mode="mirror-diff" type="button">Зеркальный + разница</button>
+        </div>
+        <p id="archiveModeHelp" class="archive-mode-help">Показываются фактические комбинации из трёх независимых полей 0–9.</p>
+      </section>
       <section class="panel filters">
-        <label>Поиск по номеру или дате<input id="archiveSearch" type="search" placeholder="Например: 267354 или 30.07.26"></label>
+        <label>Поиск по номеру, дате, комбинации или разнице<input id="archiveSearch" type="search" placeholder="Например: 267354, 883 или +899"></label>
         <label>Показывать<select id="archiveLimit"><option value="50">50 тиражей</option><option value="100">100 тиражей</option><option value="250">250 тиражей</option></select></label>
       </section>
       <div id="archiveList" class="archive-list"></div>
@@ -232,7 +263,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="top3-data.js?v=1.0.12"></script>
-  <script src="app.js?v=1.0.12"></script>
+  <script src="top3-data.js?v=1.0.13"></script>
+  <script src="app.js?v=1.0.13"></script>
 </body>
 </html>
