@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.3';
+const APP_VERSION = '1.0.4';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -8,6 +8,7 @@ const DRAW_TIMES = ['02:40','04:40','06:40','07:40','09:40','11:40','13:40','16:
 const AUTO_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const AUTO_STATUS_KEY = 'yulia-top3-auto-status-v1';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
+const BAD_LUCKY_REPAIR_KEY = 'yulia-top3-bad-lucky-rows-repaired-v1.0.4';
 
 let db;
 let draws = [];
@@ -524,42 +525,43 @@ function parseLuckyArchive(text) {
   const normalized = String(text || '').replace(/\u00a0/g,' ');
   const found = new Map();
 
-  // Основной формат Jina Reader: одна строка таблицы на один тираж.
+  // Принимаем только полноценные строки таблицы архива Lucky Numbers.
+  // Кнопки генератора и другие цифры со страницы сюда не проходят.
   for (const line of normalized.split(/\r?\n/)) {
-    const dateTime = line.match(/(\d{2}\.\d{2}\.\d{2,4})\s*,?\s*(\d{1,2}:\d{2})/);
-    if (!dateTime) continue;
-    const buttonDigits = [...line.matchAll(/\[Button:\s*([0-9])\]/g)].map(m=>Number(m[1]));
-    let digits = buttonDigits.slice(0,3);
-    if (digits.length < 3) {
-      const plus = line.match(/(?:^|\|)\s*([0-9])\s*(?:\+|\|)\s*([0-9])\s*(?:\+|\|)\s*([0-9])(?:\s*\||\s*$)/);
-      if (plus) digits = [Number(plus[1]),Number(plus[2]),Number(plus[3])];
-    }
-    if (digits.length < 3) {
-      const plainTriples = [...line.matchAll(/(?:^|\|)\s*([0-9])\s+([0-9])\s+([0-9])\s*(?=\|)/g)];
-      const plain = plainTriples.at(-1);
-      if (plain) digits = [Number(plain[1]),Number(plain[2]),Number(plain[3])];
-    }
-    if (digits.length !== 3) continue;
-    const beforeDate = line.slice(0,dateTime.index);
-    const idMatches = [...beforeDate.matchAll(/(?:^|[^0-9])((?:[0-9][\s]*){6})(?=$|[^0-9])/g)];
-    if (!idMatches.length) continue;
-    const id = Number(idMatches.at(-1)[1].replace(/\s/g,''));
-    const item = { id, date:normalizeDate(dateTime[1]), time:normalizeTime(dateTime[2]), a:digits[0], b:digits[1], c:digits[2] };
-    if (isValidDraw(item)) found.set(item.id,item);
+    const row = line.match(/^\s*\d+\s*\|\s*\|\s*\[Button:\s*([0-9])\]\s*\[Button:\s*([0-9])\]\s*\[Button:\s*([0-9])\]\s*\|\s*\|\s*\|\s*\|\s*((?:[0-9][\s]*){6})\s*\|[^\n]*?(\d{2}\.\d{2}\.\d{2,4})\s*,\s*(\d{1,2}:\d{2})/);
+    if (!row) continue;
+    const item = {
+      id: Number(row[4].replace(/\s/g,'')),
+      date: normalizeDate(row[5]),
+      time: normalizeTime(row[6]),
+      a: Number(row[1]),
+      b: Number(row[2]),
+      c: Number(row[3])
+    };
+    if (isValidDraw(item) && DRAW_TIMES.includes(item.time)) found.set(item.id,item);
   }
 
-  // Запасной разбор сырого HTML, если прокси вернул страницу, а не Markdown.
-  if (found.size < 2 && /<html|<table|<tr/i.test(normalized)) {
+  // Строгий запасной разбор сырой HTML-таблицы.
+  if (!found.size && /<html|<table|<tr/i.test(normalized)) {
     try {
       const doc = new DOMParser().parseFromString(normalized,'text/html');
       for (const row of doc.querySelectorAll('tr')) {
         const txt = row.textContent.replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
-        const dateTime = txt.match(/(\d{2}\.\d{2}\.\d{2,4})\s*,?\s*(\d{1,2}:\d{2})/);
-        const idMatch = txt.match(/\b(\d{6})\b/);
-        const buttons = [...row.querySelectorAll('button')].map(x=>x.textContent.trim()).filter(x=>/^[0-9]$/.test(x)).slice(0,3).map(Number);
+        const dateTime = txt.match(/(\d{2}\.\d{2}\.\d{2,4})\s*,\s*(\d{1,2}:\d{2})/);
+        const idMatch = txt.match(/(?:^|\s)(\d{3}\s?\d{3})(?:\s|$)/);
+        const buttons = [...row.querySelectorAll('button')]
+          .map(x=>x.textContent.trim())
+          .filter(x=>/^[0-9]$/.test(x));
         if (!dateTime || !idMatch || buttons.length !== 3) continue;
-        const item={id:Number(idMatch[1]),date:normalizeDate(dateTime[1]),time:normalizeTime(dateTime[2]),a:buttons[0],b:buttons[1],c:buttons[2]};
-        if(isValidDraw(item)) found.set(item.id,item);
+        const item = {
+          id: Number(idMatch[1].replace(/\s/g,'')),
+          date: normalizeDate(dateTime[1]),
+          time: normalizeTime(dateTime[2]),
+          a: Number(buttons[0]),
+          b: Number(buttons[1]),
+          c: Number(buttons[2])
+        };
+        if (isValidDraw(item) && DRAW_TIMES.includes(item.time)) found.set(item.id,item);
       }
     } catch {}
   }
@@ -599,12 +601,31 @@ async function fetchLuckyDraws() {
   throw new Error(errors.join('; '));
 }
 
+function sameDraw(a,b) {
+  return a && b
+    && a.id===b.id
+    && a.date===b.date
+    && a.time===b.time
+    && a.a===b.a
+    && a.b===b.b
+    && a.c===b.c;
+}
+
 function validateOnlineBatch(items) {
   if (!Array.isArray(items) || !items.length) throw new Error('пустой ответ источника');
-  const valid = items.filter(isValidDraw);
-  if (!valid.length) throw new Error('не удалось распознать тиражи');
+  const valid = items.filter(d=>isValidDraw(d) && DRAW_TIMES.includes(d.time));
+  if (valid.length < 3) throw new Error('источник вернул слишком мало проверяемых строк');
   const ids = new Set(valid.map(d=>d.id));
   if (ids.size !== valid.length) throw new Error('источник вернул дубли');
+
+  // Перед добавлением новых тиражей сверяем минимум три уже известные строки.
+  // Если хотя бы одна цифра, дата или время не совпали — ничего не сохраняем.
+  const localById = new Map(draws.map(d=>[d.id,d]));
+  const overlap = valid.filter(d=>localById.has(d.id));
+  if (overlap.length < 3) throw new Error('недостаточно контрольных совпадений с локальным архивом');
+  const mismatch = overlap.find(d=>!sameDraw(d,localById.get(d.id)));
+  if (mismatch) throw new Error(`контрольная сверка не пройдена на тираже №${mismatch.id}`);
+
   const localLatest = draws[0]?.id || 0;
   const sourceLatest = Math.max(...valid.map(d=>d.id));
   if (localLatest && sourceLatest < localLatest) throw new Error(`источник ещё не догнал локальную базу: у него №${sourceLatest}, в приложении №${localLatest}`);
@@ -716,10 +737,36 @@ function bindEvents() {
   });
 }
 
+async function repairBadLuckyRowsOnce() {
+  if (localStorage.getItem(BAD_LUCKY_REPAIR_KEY) === 'done') return 0;
+  const bad = new Map([
+    [267355,'000'],
+    [267356,'111']
+  ]);
+  const currentRows = await new Promise((resolve,reject)=>{
+    const req=db.transaction(STORE,'readonly').objectStore(STORE).getAll();
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+  const idsToDelete = currentRows
+    .filter(d=>bad.get(d.id) === `${d.a}${d.b}${d.c}`)
+    .map(d=>d.id);
+  if (idsToDelete.length) {
+    const tx=db.transaction(STORE,'readwrite');
+    const store=tx.objectStore(STORE);
+    idsToDelete.forEach(id=>store.delete(id));
+    await txDone(tx);
+  }
+  localStorage.setItem(BAD_LUCKY_REPAIR_KEY,'done');
+  if (idsToDelete.length) saveSyncStatus({state:'idle',message:`Удалены ошибочно распознанные тиражи: ${idsToDelete.length}. Выполняю строгую повторную проверку источника.`});
+  return idsToDelete.length;
+}
+
 async function start() {
   try {
     db=await openDB();
     await seedDatabase();
+    await repairBadLuckyRowsOnce();
     await loadAllDraws();
     bindEvents();
     initializeAnalysisTools();
@@ -732,12 +779,7 @@ async function start() {
     $('loadingText').textContent='Ошибка загрузки базы. Закрой приложение и открой снова.';
   }
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=1.0.3', { updateViaCache: 'none' })
-      .then(async reg => {
-        await reg.update();
-        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      })
-      .catch(console.error);
+    navigator.serviceWorker.register('./sw.js').then(reg=>reg.update()).catch(console.error);
   }
 }
 
