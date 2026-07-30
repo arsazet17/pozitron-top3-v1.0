@@ -1,11 +1,11 @@
-const CACHE_NAME = 'yulia-top3-v1-0-1';
+const CACHE_NAME = 'yulia-top3-v1-0-2';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './icon-top3-yulia-v1.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
