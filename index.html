@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071b4d">
+  <title>Yulia TOP-3 v1.0</title>
+  <link rel="icon" href="icon-top3-yulia-v1.png" type="image/png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #030817;
+      --panel: rgba(12, 28, 70, 0.92);
+      --line: rgba(52, 211, 255, 0.35);
+      --cyan: #35d8ff;
+      --gold: #ffd53d;
+      --text: #f7fbff;
+      --muted: #a8b6d7;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 50% 0%, rgba(0, 116, 255, 0.34), transparent 36%),
+        linear-gradient(180deg, #071b4d 0%, var(--bg) 70%);
+      padding: 24px 16px 40px;
+    }
+
+    .app {
+      width: min(100%, 520px);
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 24px 20px;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(17, 48, 116, 0.94), rgba(5, 19, 54, 0.96));
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: 0 22px 70px rgba(0, 0, 0, 0.38), inset 0 0 45px rgba(37, 194, 255, 0.08);
+    }
+
+    .logo {
+      width: min(72vw, 310px);
+      max-width: 100%;
+      display: block;
+      margin: 0 auto 18px;
+      border-radius: 24%;
+      box-shadow: 0 16px 45px rgba(0, 158, 255, 0.28);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 8vw, 44px);
+      letter-spacing: 0.02em;
+    }
+
+    .version {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      color: #00152e;
+      background: linear-gradient(90deg, var(--cyan), #9cecff);
+      font-weight: 800;
+    }
+
+    .subtitle {
+      margin: 18px auto 0;
+      max-width: 360px;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 16px;
+    }
+
+    .status {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(2, 10, 29, 0.72);
+      border: 1px solid rgba(255, 213, 61, 0.28);
+      color: #fff4bf;
+      font-weight: 700;
+    }
+
+    .digits {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .digit {
+      display: grid;
+      place-items: center;
+      aspect-ratio: 1;
+      border-radius: 24px;
+      font-size: clamp(38px, 13vw, 64px);
+      font-weight: 900;
+      background: linear-gradient(145deg, rgba(30, 101, 228, 0.92), rgba(5, 24, 71, 0.95));
+      border: 1px solid rgba(81, 221, 255, 0.44);
+      box-shadow: inset 0 0 28px rgba(79, 213, 255, 0.12);
+    }
+
+    .digit:nth-child(2) {
+      color: #091536;
+      background: linear-gradient(145deg, #ffffff, #a9c9ff);
+    }
+
+    .digit:nth-child(3) {
+      color: #2b1a00;
+      background: linear-gradient(145deg, #ffe66c, #f7a800);
+      border-color: rgba(255, 223, 102, 0.7);
+    }
+
+    footer {
+      margin-top: 18px;
+      text-align: center;
+      color: #7890bd;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="hero" aria-labelledby="app-title">
+      <img class="logo" src="icon-top3-yulia-v1.png" alt="Логотип Yulia TOP-3">
+      <h1 id="app-title">Yulia TOP-3</h1>
+      <span class="version">v1.0</span>
+      <p class="subtitle">Первый экран нового приложения для архива и анализа тиражей «Топ-3».</p>
+      <div class="status">Основа приложения создана ✅</div>
+      <div class="digits" aria-label="Пример трёх цифр">
+        <div class="digit">1</div>
+        <div class="digit">3</div>
+        <div class="digit">7</div>
+      </div>
+    </section>
+    <footer>pozitron-top3-v1.0</footer>
+  </main>
+</body>
+</html>
