@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.13';
+const APP_VERSION = '1.0.14';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -598,21 +598,53 @@ function renderHome() {
   renderAiPanel();
 }
 
+function parseArchiveSearch(rawValue) {
+  const text = String(rawValue || '').trim().toLowerCase();
+  if (!text) return null;
+  const compact = text.replace(/\s+/g, '');
+
+  // +106 means one thing only: the exact displayed Positron difference.
+  if (/^\+\d{3}$/.test(compact)) return { type: 'delta', value: compact.slice(1) };
+
+  // №267106 or #267106 means the exact draw number.
+  if (/^[№#]\d+$/.test(compact)) return { type: 'id', value: Number(compact.slice(1)) };
+
+  // A bare three-digit value is an exact displayed combination, never part of a draw ID.
+  if (/^\d{3}$/.test(compact)) return { type: 'combination', value: compact };
+
+  // Long bare numbers are treated as draw numbers for the familiar 267354-style search.
+  if (/^\d{4,}$/.test(compact)) return { type: 'id', value: Number(compact) };
+
+  return { type: 'text', value: text };
+}
+
 function renderArchive(reset = false) {
   if (reset) archiveShown = Number($('archiveLimit').value) || 50;
-  const term = $('archiveSearch').value.trim().toLowerCase().replace(/^\+/, '');
+  const query = parseArchiveSearch($('archiveSearch').value);
   const indexById = new Map(draws.map((draw,index) => [draw.id,index]));
+  const mirrorMode = archiveMode.startsWith('mirror');
   const searchable = draw => {
     const index = indexById.get(draw.id);
     const older = Number.isInteger(index) ? draws[index + 1] : null;
     const normal = digitsOf(draw);
-    const mirror = mirrorDigits(normal);
+    const displayedDigits = mirrorMode ? mirrorDigits(normal) : normal;
     const delta = positronDifference(older, draw);
-    const mirrorDelta = delta ? mirrorDigits(delta) : null;
-    return [draw.id, draw.date, draw.time, codeOfDigits(normal), codeOfDigits(mirror), delta ? codeOfDigits(delta) : '', mirrorDelta ? codeOfDigits(mirrorDelta) : '']
-      .some(value => String(value).toLowerCase().includes(term));
+    const displayedDelta = delta ? (mirrorMode ? mirrorDigits(delta) : delta) : null;
+
+    if (query.type === 'delta') {
+      return Boolean(displayedDelta) && codeOfDigits(displayedDelta) === query.value;
+    }
+    if (query.type === 'combination') {
+      return codeOfDigits(displayedDigits) === query.value;
+    }
+    if (query.type === 'id') {
+      return draw.id === query.value;
+    }
+
+    return [draw.date, draw.time, patternOf(draw)]
+      .some(value => String(value).toLowerCase().includes(query.value));
   };
-  const filtered = term ? draws.filter(searchable) : draws;
+  const filtered = query ? draws.filter(searchable) : draws;
   const visible = filtered.slice(0, archiveShown);
   const meta = archiveModeMeta();
   $('archiveInfo').textContent = `${filtered.length.toLocaleString('ru-RU')} тиражей · ${meta.title}`;
@@ -624,7 +656,7 @@ function renderArchive(reset = false) {
     const normal = digitsOf(draw);
     const delta = positronDifference(older, draw);
     const isMirror = archiveMode.startsWith('mirror');
-    const showDifference = archiveMode.endsWith('diff');
+    const showDifference = archiveMode.endsWith('diff') || query?.type === 'delta';
     const displayedDigits = isMirror ? mirrorDigits(normal) : normal;
     const displayedDelta = delta ? (isMirror ? mirrorDigits(delta) : delta) : null;
     const sourceText = showDifference && older
