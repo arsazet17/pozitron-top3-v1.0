@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.14';
+const APP_VERSION = '1.0.15';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -8,6 +8,9 @@ const DRAW_TIMES = ['02:40','04:40','06:40','07:40','09:40','11:40','13:40','16:
 const AUTO_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_STATUS_KEY = 'yulia-top3-auto-status-v1';
 const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
+const ARCHIVE_TIME_KEY = 'yulia-top3-archive-time-v1';
+const ARCHIVE_SCOPE_KEY = 'yulia-top3-archive-scope-v1';
+const AI_TIME_KEY = 'yulia-top3-ai-time-v1';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
 
@@ -21,7 +24,10 @@ let syncStatus = loadSyncStatus();
 let storageReady = false;
 let eventsBound = false;
 let archiveMode = 'normal';
-let aiCache = null;
+let archiveTime = '13:40';
+let archiveSearchScope = 'selected';
+let aiSelectedTime = '13:40';
+let aiCache = new Map();
 
 const VERIFIED_CORRECTIONS = [
   // Эти строки уже есть во встроенном архиве и используются только для
@@ -219,7 +225,7 @@ function archiveModeMeta(mode = archiveMode) {
     },
     'normal-diff': {
       title: 'Обычный архив + разница',
-      help: 'Разница +Δ показывает покоординатный переход от предыдущего тиража к текущему по модулю 10.'
+      help: 'Разница +Δ показывает переход от предыдущего тиража этого же времени к текущему по модулю 10.'
     },
     mirror: {
       title: 'Зеркальный архив',
@@ -227,7 +233,7 @@ function archiveModeMeta(mode = archiveMode) {
     },
     'mirror-diff': {
       title: 'Зеркальный архив + разница',
-      help: 'Показаны зеркальные комбинации и зеркальная разница Позитронов для каждого перехода.'
+      help: 'Показаны зеркальные комбинации и зеркальная разница между соседними днями этого же времени.'
     }
   };
   return modes[mode] || modes.normal;
@@ -268,8 +274,28 @@ function nextDrawAfterLatest(latest) {
   return { date:formatDrawDate(date), time:nextTime, weekday:date.getUTCDay() };
 }
 
-function buildPositronTransitions(sourceDraws = draws) {
-  const ordered = [...sourceDraws].sort((a,b) => a.id - b.id);
+function drawsForTime(time, sourceDraws = draws) {
+  return sourceDraws
+    .filter(draw => draw.time === time)
+    .sort((a,b) => b.id - a.id);
+}
+
+function dateGapDays(older, newer) {
+  const olderDate = parseDrawDate(older?.date);
+  const newerDate = parseDrawDate(newer?.date);
+  if (!olderDate || !newerDate) return 1;
+  return Math.max(1, Math.round((newerDate - olderDate) / 86400000));
+}
+
+function nextSameTimeAfterLatest(latest, time) {
+  if (!latest) return { date:'—', time, weekday:0, dayGap:1 };
+  const date = parseDrawDate(latest.date) || new Date();
+  date.setUTCDate(date.getUTCDate() + 1);
+  return { date:formatDrawDate(date), time, weekday:date.getUTCDay(), dayGap:1 };
+}
+
+function buildPositronTransitionsForTime(time, sourceDraws = draws) {
+  const ordered = drawsForTime(time, sourceDraws).reverse();
   const records = [];
   for (let index = 1; index < ordered.length; index++) {
     const previous = ordered[index - 1];
@@ -280,8 +306,9 @@ function buildPositronTransitions(sourceDraws = draws) {
       previous,
       current,
       delta,
-      time:current.time,
-      weekday:date ? date.getUTCDay() : 0
+      time,
+      weekday:date ? date.getUTCDay() : 0,
+      dayGap:dateGapDays(previous, current)
     });
   }
   return records;
@@ -304,37 +331,44 @@ function incrementMap(map, key, digit) {
 function createAiModel() {
   return Array.from({length:3}, () => ({
     global:emptyDigitCounts(),
-    time:new Map(),
     weekday:new Map(),
     source:new Map(),
-    timeSource:new Map(),
+    gap:new Map(),
     previousDelta:new Map(),
-    previousPair:new Map(),
-    previousFullDelta:new Map()
+    previousFullDelta:new Map(),
+    history2:new Map(),
+    history3:new Map(),
+    history5:new Map()
   }));
+}
+
+function historyKey(records, index, position, length) {
+  if (index < length) return null;
+  return records.slice(index - length, index).map(record => record.delta[position]).join('|');
 }
 
 function addAiRecord(model, records, index) {
   const record = records[index];
   if (!record) return;
   const previousRecord = records[index - 1] || null;
-  const previousPreviousRecord = records[index - 2] || null;
   for (let position = 0; position < 3; position++) {
     const target = record.delta[position];
     const sourceDigit = digitsOf(record.previous)[position];
     const bucket = model[position];
     incrementArray(bucket.global, target);
-    incrementMap(bucket.time, record.time, target);
     incrementMap(bucket.weekday, record.weekday, target);
     incrementMap(bucket.source, sourceDigit, target);
-    incrementMap(bucket.timeSource, `${record.time}|${sourceDigit}`, target);
+    incrementMap(bucket.gap, Math.min(7, record.dayGap || 1), target);
     if (previousRecord) {
       incrementMap(bucket.previousDelta, previousRecord.delta[position], target);
       incrementMap(bucket.previousFullDelta, codeOfDigits(previousRecord.delta), target);
     }
-    if (previousRecord && previousPreviousRecord) {
-      incrementMap(bucket.previousPair, `${previousPreviousRecord.delta[position]}|${previousRecord.delta[position]}`, target);
-    }
+    const key2 = historyKey(records, index, position, 2);
+    const key3 = historyKey(records, index, position, 3);
+    const key5 = historyKey(records, index, position, 5);
+    if (key2 !== null) incrementMap(bucket.history2, key2, target);
+    if (key3 !== null) incrementMap(bucket.history3, key3, target);
+    if (key5 !== null) incrementMap(bucket.history5, key5, target);
   }
 }
 
@@ -369,24 +403,32 @@ function normalizeScores(scores) {
   return exponentials.map(value => value / sum);
 }
 
+function contextHistoryKey(records, position, length) {
+  if (records.length < length) return null;
+  return records.slice(-length).map(record => record.delta[position]).join('|');
+}
+
 function predictAiPosition(model, records, position, context) {
   const bucket = model[position];
   const scores = Array(10).fill(0);
-  addEvidence(scores, bucket.global, 1.25, 5000, 1.2);
-  addEvidence(scores, bucket.time.get(String(context.time)), 0.65, 350, 1.4);
-  addEvidence(scores, bucket.weekday.get(String(context.weekday)), 0.22, 1200, 1.5);
-  addEvidence(scores, bucket.source.get(String(context.sourceDigits[position])), 0.70, 1800, 1.3);
-  addEvidence(scores, bucket.timeSource.get(`${context.time}|${context.sourceDigits[position]}`), 0.70, 160, 1.7);
+  addEvidence(scores, bucket.global, 1.20, 1600, 1.25);
+  addEvidence(scores, bucket.weekday.get(String(context.weekday)), 0.28, 260, 1.6);
+  addEvidence(scores, bucket.source.get(String(context.sourceDigits[position])), 0.68, 180, 1.45);
+  addEvidence(scores, bucket.gap.get(String(Math.min(7, context.dayGap || 1))), 0.20, 220, 1.8);
   if (context.previousRecord) {
-    addEvidence(scores, bucket.previousDelta.get(String(context.previousRecord.delta[position])), 0.78, 1800, 1.4);
-    addEvidence(scores, bucket.previousFullDelta.get(codeOfDigits(context.previousRecord.delta)), 0.34, 40, 2.2);
+    addEvidence(scores, bucket.previousDelta.get(String(context.previousRecord.delta[position])), 0.72, 180, 1.5);
+    addEvidence(scores, bucket.previousFullDelta.get(codeOfDigits(context.previousRecord.delta)), 0.24, 25, 2.4);
   }
-  if (context.previousRecord && context.previousPreviousRecord) {
-    addEvidence(scores, bucket.previousPair.get(`${context.previousPreviousRecord.delta[position]}|${context.previousRecord.delta[position]}`), 0.65, 180, 2.0);
-  }
-  addEvidence(scores, recentCounts(records, position, 50), 0.52, 50, 1.8);
-  addEvidence(scores, recentCounts(records, position, 200), 0.38, 200, 1.5);
-  addEvidence(scores, recentCounts(records, position, 1000), 0.20, 1000, 1.3);
+  const key2 = contextHistoryKey(records, position, 2);
+  const key3 = contextHistoryKey(records, position, 3);
+  const key5 = contextHistoryKey(records, position, 5);
+  if (key2 !== null) addEvidence(scores, bucket.history2.get(key2), 0.50, 70, 2.1);
+  if (key3 !== null) addEvidence(scores, bucket.history3.get(key3), 0.30, 35, 2.5);
+  if (key5 !== null) addEvidence(scores, bucket.history5.get(key5), 0.18, 16, 3.0);
+  addEvidence(scores, recentCounts(records, position, 10), 0.36, 10, 2.2);
+  addEvidence(scores, recentCounts(records, position, 20), 0.34, 20, 2.0);
+  addEvidence(scores, recentCounts(records, position, 50), 0.28, 50, 1.8);
+  addEvidence(scores, recentCounts(records, position, 200), 0.18, 200, 1.5);
   const probabilities = normalizeScores(scores);
   return probabilities.map((probability, digit) => ({digit, probability}))
     .sort((a,b) => b.probability - a.probability || a.digit - b.digit);
@@ -396,51 +438,28 @@ function predictAiTransition(model, records, context) {
   return [0,1,2].map(position => predictAiPosition(model, records, position, context));
 }
 
-function globalAiRanking(model, position) {
-  const counts = model[position].global;
-  const support = countsSupport(counts);
-  return counts.map((count,digit) => ({
-    digit,
-    probability:(count + 1) / (support + 10)
-  })).sort((a,b) => b.probability - a.probability || a.digit - b.digit);
-}
-
-function aiMethodScore(methodStats, method, position) {
-  const seen = methodStats.seen[position] || 0;
-  if (!seen) return method === 'global' ? 0.0001 : 0;
-  return (methodStats[method].top1[position] + 0.22 * methodStats[method].top3[position]) / seen;
-}
-
-function chooseAiMethod(methodStats, position) {
-  return aiMethodScore(methodStats,'ensemble',position) > aiMethodScore(methodStats,'global',position)
-    ? 'ensemble'
-    : 'global';
-}
-
 function aiContextForNext(records, latest, next) {
   return {
-    time:next.time,
     weekday:next.weekday,
+    dayGap:next.dayGap || 1,
     sourceDigits:digitsOf(latest),
-    previousRecord:records.at(-1) || null,
-    previousPreviousRecord:records.at(-2) || null
+    previousRecord:records.at(-1) || null
   };
 }
 
 function aiContextForRecord(records, index) {
   const record = records[index];
   return {
-    time:record.time,
     weekday:record.weekday,
+    dayGap:record.dayGap || 1,
     sourceDigits:digitsOf(record.previous),
-    previousRecord:records[index - 1] || null,
-    previousPreviousRecord:records[index - 2] || null
+    previousRecord:records[index - 1] || null
   };
 }
 
-function runAiBacktest(records, testSize = 600) {
-  if (records.length < 1200) return null;
-  const start = Math.max(700, records.length - testSize);
+function runAiBacktest(records, testSize = 250) {
+  if (records.length < 350) return null;
+  const start = Math.max(220, records.length - testSize);
   const model = createAiModel();
   for (let index = 0; index < start; index++) addAiRecord(model, records, index);
   const stats = {
@@ -449,11 +468,12 @@ function runAiBacktest(records, testSize = 600) {
     fieldTop3:[0,0,0],
     atLeastOneTop1:0,
     atLeastTwoTop1:0,
+    allThreeTop1:0,
     atLeastOneTop3:0,
     atLeastTwoTop3:0
   };
   for (let index = start; index < records.length; index++) {
-    const recentHistory = records.slice(Math.max(0, index - 1000), index);
+    const recentHistory = records.slice(Math.max(0, index - 300), index);
     const predictions = predictAiTransition(model, recentHistory, aiContextForRecord(records, index));
     let hitsTop1 = 0;
     let hitsTop3 = 0;
@@ -470,6 +490,7 @@ function runAiBacktest(records, testSize = 600) {
     });
     if (hitsTop1 >= 1) stats.atLeastOneTop1 += 1;
     if (hitsTop1 >= 2) stats.atLeastTwoTop1 += 1;
+    if (hitsTop1 === 3) stats.allThreeTop1 += 1;
     if (hitsTop3 >= 1) stats.atLeastOneTop3 += 1;
     if (hitsTop3 >= 2) stats.atLeastTwoTop3 += 1;
     stats.tested += 1;
@@ -478,20 +499,23 @@ function runAiBacktest(records, testSize = 600) {
   return stats;
 }
 
-function buildAiAnalysis() {
-  const cacheKey = `${draws.length}|${draws[0]?.id || 0}|${drawCode(draws[0])}`;
-  if (aiCache?.key === cacheKey) return aiCache.value;
-  const records = buildPositronTransitions(draws);
-  if (!records.length || !draws[0]) return null;
+function buildAiAnalysisForTime(time) {
+  const timeDraws = drawsForTime(time);
+  const latest = timeDraws[0] || null;
+  const cacheKey = `${time}|${timeDraws.length}|${latest?.id || 0}|${latest ? drawCode(latest) : ''}`;
+  if (aiCache.has(cacheKey)) return aiCache.get(cacheKey);
+  const records = buildPositronTransitionsForTime(time);
+  if (!records.length || !latest) return null;
   const model = createAiModel();
   records.forEach((_, index) => addAiRecord(model, records, index));
-  const next = nextDrawAfterLatest(draws[0]);
-  const rankings = predictAiTransition(model, records, aiContextForNext(records, draws[0], next));
+  const next = nextSameTimeAfterLatest(latest, time);
+  const rankings = predictAiTransition(model, records, aiContextForNext(records, latest, next));
   const primaryDelta = rankings.map(ranking => ranking[0].digit);
-  const predictedDigits = digitsOf(draws[0]).map((digit, index) => mod10(digit + primaryDelta[index]));
-  const backtest = runAiBacktest(records, Math.min(600, Math.max(300, Math.floor(records.length * 0.04))));
-  const value = {records, next, rankings, primaryDelta, predictedDigits, backtest};
-  aiCache = {key:cacheKey, value};
+  const predictedDigits = digitsOf(latest).map((digit, index) => mod10(digit + primaryDelta[index]));
+  const backtestSize = Math.min(300, Math.max(150, Math.floor(records.length * 0.18)));
+  const backtest = runAiBacktest(records, backtestSize);
+  const value = {time, timeDraws, latest, records, next, rankings, primaryDelta, predictedDigits, backtest};
+  aiCache.set(cacheKey, value);
   return value;
 }
 
@@ -504,54 +528,86 @@ function aiSignalInfo(analysis) {
   const gaps = analysis.rankings.map(ranking => (ranking[0]?.probability || 0) - (ranking[1]?.probability || 0));
   const averageProbability = probabilities.reduce((sum, value) => sum + value, 0) / 3;
   const averageGap = gaps.reduce((sum, value) => sum + value, 0) / 3;
-  if (averageProbability >= 0.17 && averageGap >= 0.035) return {label:'Повышенный сигнал',className:'strong'};
-  if (averageProbability >= 0.135 && averageGap >= 0.018) return {label:'Средний сигнал',className:'medium'};
+  const tested = analysis.backtest?.tested || 0;
+  const top1 = tested ? analysis.backtest.atLeastOneTop1 / tested : 0;
+  if (averageProbability >= 0.17 && averageGap >= 0.035 && top1 >= 0.285) return {label:'Повышенный сигнал',className:'strong'};
+  if (averageProbability >= 0.135 && averageGap >= 0.018 && top1 >= 0.275) return {label:'Средний сигнал',className:'medium'};
   return {label:'Слабый сигнал',className:'weak'};
 }
 
-function renderAiPanel() {
-  const contextNode = $('aiContext');
+function renderTimeChips(containerId, selectedTime, attributeName) {
+  const container = $(containerId);
+  if (!container) return;
+  container.innerHTML = DRAW_TIMES.map(time => {
+    const count = drawsForTime(time).length;
+    return `<button class="time-chip ${time === selectedTime ? 'active' : ''}" type="button" data-${attributeName}="${time}"><strong>${time}</strong><small>${count.toLocaleString('ru-RU')}</small></button>`;
+  }).join('');
+}
+
+function renderAiInto(ids, time) {
+  const contextNode = $(ids.context);
   if (!contextNode) return;
-  const analysis = buildAiAnalysis();
+  const analysis = buildAiAnalysisForTime(time);
+  if (ids.title && $(ids.title)) $(ids.title).textContent = `ИИ Позитрон · ${time}`;
   if (!analysis) {
-    contextNode.textContent = 'Недостаточно данных для расчёта.';
-    $('aiMainPrediction').innerHTML = '';
-    $('aiColumnPredictions').innerHTML = '';
-    $('aiBacktest').innerHTML = '';
+    contextNode.textContent = `Недостаточно переходов в архиве ${time}.`;
+    $(ids.main).innerHTML = '';
+    $(ids.columns).innerHTML = '';
+    $(ids.backtest).innerHTML = '';
     return;
   }
-  const latest = draws[0];
   const signal = aiSignalInfo(analysis);
-  const badge = $('aiSignalBadge');
+  const badge = $(ids.badge);
   badge.textContent = signal.label;
   badge.className = `ai-signal ${signal.className}`;
-  contextNode.innerHTML = `<div><span>Последний факт</span><strong>№${latest.id} · ${drawCode(latest)}</strong></div><div><span>Цель модели</span><strong>${analysis.next.date} · ${analysis.next.time}</strong></div>`;
+  contextNode.innerHTML = `<div><span>Последний факт ${time}</span><strong>№${analysis.latest.id} · ${drawCode(analysis.latest)}</strong><small>${analysis.latest.date}</small></div><div><span>Следующая цель</span><strong>${analysis.next.date} · ${time}</strong><small>${analysis.records.length.toLocaleString('ru-RU')} переходов в обучении</small></div>`;
   const mirrorDelta = mirrorDigits(analysis.primaryDelta);
-  $('aiMainPrediction').innerHTML = `
-    <div class="ai-main-block"><span>Основной переход</span><strong>+${codeOfDigits(analysis.primaryDelta)}</strong><small>зеркало +${codeOfDigits(mirrorDelta)}</small></div>
+  $(ids.main).innerHTML = `
+    <div class="ai-main-block"><span>Основной переход ${time}</span><strong>+${codeOfDigits(analysis.primaryDelta)}</strong><small>зеркальный +${codeOfDigits(mirrorDelta)}</small></div>
     <div class="ai-main-arrow">→</div>
-    <div class="ai-main-block result"><span>Расчётная комбинация</span><strong>${codeOfDigits(analysis.predictedDigits)}</strong><small>${drawCode(latest)} + ${codeOfDigits(analysis.primaryDelta)} по модулю 10</small></div>`;
-  $('aiColumnPredictions').innerHTML = analysis.rankings.map((ranking, position) => {
+    <div class="ai-main-block result"><span>Расчётная комбинация</span><strong>${codeOfDigits(analysis.predictedDigits)}</strong><small>${drawCode(analysis.latest)} + ${codeOfDigits(analysis.primaryDelta)} по модулю 10</small></div>`;
+  $(ids.columns).innerHTML = analysis.rankings.map((ranking, position) => {
     const candidates = ranking.slice(0,3);
-    const main = candidates[0];
     return `<article class="ai-column-card">
       <span>${position + 1}-е поле перехода</span>
-      <strong>${main.digit}</strong>
+      <strong>${candidates[0].digit}</strong>
       <div class="ai-candidates">${candidates.map((item,index) => `<b class="${index === 0 ? 'primary' : ''}">${item.digit}<small>${(item.probability*100).toFixed(1)}%</small></b>`).join('')}</div>
+      <em>резерв: ${candidates.slice(1).map(item => item.digit).join(', ')}</em>
     </article>`;
   }).join('');
   const test = analysis.backtest;
   if (!test) {
-    $('aiBacktest').textContent = 'Для честного теста пока недостаточно истории.';
+    $(ids.backtest).textContent = 'Для честного теста этого временного архива пока недостаточно истории.';
   } else {
-    $('aiBacktest').innerHTML = `<div class="ai-backtest-title"><span>Проверка без подглядывания</span><strong>${test.tested} последних переходов</strong></div>
+    $(ids.backtest).innerHTML = `<div class="ai-backtest-title"><span>Проверка модели ${time} без подглядывания</span><strong>${test.tested} переходов</strong></div>
       <div class="ai-metrics">
         <div><span>Хотя бы 1 точное поле</span><b>${pct(test.atLeastOneTop1,test.tested)}</b></div>
         <div><span>Хотя бы 2 точных поля</span><b>${pct(test.atLeastTwoTop1,test.tested)}</b></div>
+        <div><span>Все 3 точных поля</span><b>${pct(test.allThreeTop1,test.tested,2)}</b></div>
         <div><span>1 поле в тройке кандидатов</span><b>${pct(test.atLeastOneTop3,test.tested)}</b></div>
         <div><span>2 поля в тройке кандидатов</span><b>${pct(test.atLeastTwoTop3,test.tested)}</b></div>
-      </div>`;
+      </div>
+      <p class="ai-honesty">Результаты считаются только на прошлых фактах выбранного времени. Слабый сигнал означает, что модель не показала устойчивого преимущества.</p>`;
   }
+}
+
+function renderAiPanel() {
+  const nextTime = nextDrawAfterLatest(draws[0]).time;
+  renderAiInto({
+    title:'aiTitle', badge:'aiSignalBadge', context:'aiContext', main:'aiMainPrediction',
+    columns:'aiColumnPredictions', backtest:'aiBacktest'
+  }, nextTime);
+}
+
+function renderAiTimeView() {
+  renderTimeChips('aiTimeChips', aiSelectedTime, 'ai-time');
+  const count = drawsForTime(aiSelectedTime).length;
+  const summary = $('aiTimeSummary');
+  if (summary) summary.textContent = `${aiSelectedTime} · ${count.toLocaleString('ru-RU')} тиражей · ${Math.max(0,count-1).toLocaleString('ru-RU')} переходов между днями`;
+  renderAiInto({
+    title:'aiTimePanelTitle', badge:'aiTimeSignalBadge', context:'aiTimeContext', main:'aiTimeMainPrediction',
+    columns:'aiTimeColumnPredictions', backtest:'aiTimeBacktest'
+  }, aiSelectedTime);
 }
 
 
@@ -618,60 +674,97 @@ function parseArchiveSearch(rawValue) {
   return { type: 'text', value: text };
 }
 
+function buildSameTimeOlderMap() {
+  const map = new Map();
+  for (const time of DRAW_TIMES) {
+    const list = drawsForTime(time);
+    list.forEach((draw,index) => map.set(draw.id, list[index + 1] || null));
+  }
+  return map;
+}
+
+function archiveEquationHtml(olderDigits, deltaDigits, currentDigits) {
+  return `<div class="positron-equation">
+    <div><span>Предыдущая</span>${renderArchiveDigits(olderDigits)}</div>
+    <b class="equation-sign">+</b>
+    <div><span>Разница</span>${renderArchiveDigits(deltaDigits, 'delta-digits')}</div>
+    <b class="equation-sign">=</b>
+    <div><span>Результат</span>${renderArchiveDigits(currentDigits)}</div>
+  </div>`;
+}
+
 function renderArchive(reset = false) {
   if (reset) archiveShown = Number($('archiveLimit').value) || 50;
+  renderTimeChips('archiveTimeChips', archiveTime, 'archive-time');
+  const selectedDraws = drawsForTime(archiveTime);
+  $('archiveTimeSummary').textContent = `${archiveTime} · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · ${Math.max(0, selectedDraws.length - 1).toLocaleString('ru-RU')} переходов между днями`;
+  if ($('archiveSearchScope')) $('archiveSearchScope').value = archiveSearchScope;
+
   const query = parseArchiveSearch($('archiveSearch').value);
-  const indexById = new Map(draws.map((draw,index) => [draw.id,index]));
+  const olderById = buildSameTimeOlderMap();
   const mirrorMode = archiveMode.startsWith('mirror');
+  const searchAllTimes = Boolean(query) && archiveSearchScope === 'all';
+  const source = searchAllTimes ? draws : selectedDraws;
+
   const searchable = draw => {
-    const index = indexById.get(draw.id);
-    const older = Number.isInteger(index) ? draws[index + 1] : null;
+    const older = olderById.get(draw.id) || null;
     const normal = digitsOf(draw);
     const displayedDigits = mirrorMode ? mirrorDigits(normal) : normal;
     const delta = positronDifference(older, draw);
     const displayedDelta = delta ? (mirrorMode ? mirrorDigits(delta) : delta) : null;
-
-    if (query.type === 'delta') {
-      return Boolean(displayedDelta) && codeOfDigits(displayedDelta) === query.value;
-    }
-    if (query.type === 'combination') {
-      return codeOfDigits(displayedDigits) === query.value;
-    }
-    if (query.type === 'id') {
-      return draw.id === query.value;
-    }
-
+    if (query.type === 'delta') return Boolean(displayedDelta) && codeOfDigits(displayedDelta) === query.value;
+    if (query.type === 'combination') return codeOfDigits(displayedDigits) === query.value;
+    if (query.type === 'id') return draw.id === query.value;
     return [draw.date, draw.time, patternOf(draw)]
       .some(value => String(value).toLowerCase().includes(query.value));
   };
-  const filtered = query ? draws.filter(searchable) : draws;
+
+  const filtered = query ? source.filter(searchable) : source;
   const visible = filtered.slice(0, archiveShown);
   const meta = archiveModeMeta();
-  $('archiveInfo').textContent = `${filtered.length.toLocaleString('ru-RU')} тиражей · ${meta.title}`;
+  const scopeLabel = searchAllTimes ? 'все 10 времён' : archiveTime;
+  $('archiveInfo').textContent = `${filtered.length.toLocaleString('ru-RU')} тиражей · ${scopeLabel} · ${meta.title}`;
   $('archiveModeHelp').textContent = meta.help;
   qsa('.archive-mode-btn').forEach(button => button.classList.toggle('active', button.dataset.archiveMode === archiveMode));
+
   $('archiveList').innerHTML = visible.map(draw => {
-    const index = indexById.get(draw.id);
-    const older = Number.isInteger(index) ? draws[index + 1] : null;
+    const older = olderById.get(draw.id) || null;
     const normal = digitsOf(draw);
     const delta = positronDifference(older, draw);
     const isMirror = archiveMode.startsWith('mirror');
     const showDifference = archiveMode.endsWith('diff') || query?.type === 'delta';
     const displayedDigits = isMirror ? mirrorDigits(normal) : normal;
+    const displayedOlder = older ? (isMirror ? mirrorDigits(digitsOf(older)) : digitsOf(older)) : null;
     const displayedDelta = delta ? (isMirror ? mirrorDigits(delta) : delta) : null;
-    const sourceText = showDifference && older
-      ? `переход от №${older.id}`
-      : patternOf(draw);
-    return `<article class="archive-row ${showDifference ? 'with-difference' : ''}">
-      <div class="archive-row-info"><h4>№ ${draw.id}</h4><p>${draw.date} · ${draw.time} · ${sourceText}</p></div>
-      <div class="archive-values">
-        ${renderArchiveDigits(displayedDigits, isMirror ? 'mirror-digits' : '')}
-        ${showDifference ? `<div class="positron-difference ${displayedDelta ? '' : 'empty'}"><span>Δ</span><strong>${displayedDelta ? `+${codeOfDigits(displayedDelta)}` : '—'}</strong></div>` : ''}
-      </div>
-    </article>`;
-  }).join('');
+    const gap = older ? dateGapDays(older, draw) : null;
+    const gapBadge = gap && gap > 1 ? `<span class="gap-badge">Интервал ${gap} дня</span>` : '';
+    const sourceText = older ? `переход от №${older.id} · ${older.date} · ${draw.time}` : 'первый тираж этой временной цепочки';
+
+    let expanded = '';
+    if (showDifference && older && displayedDelta) {
+      expanded = `${archiveEquationHtml(displayedOlder, displayedDelta, displayedDigits)}
+        <p class="archive-formula"><strong>${codeOfDigits(displayedOlder)} + ${codeOfDigits(displayedDelta)} = ${codeOfDigits(displayedDigits)}</strong> · три независимых поля, модуль 10</p>`;
+    } else if (isMirror) {
+      expanded = `<div class="mirror-explanation"><span>Обычная комбинация</span>${renderArchiveDigits(normal)}<b>→</b><span>Зеркальная</span>${renderArchiveDigits(displayedDigits, 'mirror-digits')}</div>`;
+    } else {
+      expanded = `<p class="archive-formula">Фактическая комбинация из трёх независимых полей: <strong>${codeOfDigits(normal)}</strong>.</p>`;
+    }
+
+    return `<details class="archive-row archive-detail-row ${showDifference ? 'with-difference' : ''}">
+      <summary>
+        <div class="archive-row-info"><h4>№ ${draw.id}</h4><p>${draw.date} · ${draw.time} · ${sourceText}</p>${gapBadge}</div>
+        <div class="archive-values">
+          ${renderArchiveDigits(displayedDigits, isMirror ? 'mirror-digits' : '')}
+          ${showDifference ? `<div class="positron-difference ${displayedDelta ? '' : 'empty'}"><span>Δ</span><strong>${displayedDelta ? `+${codeOfDigits(displayedDelta)}` : '—'}</strong></div>` : ''}
+          <span class="details-chevron">⌄</span>
+        </div>
+      </summary>
+      <div class="archive-expanded">${expanded}</div>
+    </details>`;
+  }).join('') || '<div class="empty-result">По выбранным условиям ничего не найдено.</div>';
   $('loadMoreBtn').hidden = visible.length >= filtered.length;
 }
+
 
 function frequency(list, key) {
   const counts = Array(10).fill(0);
@@ -922,6 +1015,7 @@ function renderData() {
 function renderAll() {
   renderHome();
   renderArchive(true);
+  renderAiTimeView();
   renderAnalysis();
   renderData();
 }
@@ -986,7 +1080,10 @@ function showToast(message) {
 }
 
 async function refreshFromDB(message) {
-  await loadAllDraws(); renderAll(); if (message) showToast(message);
+  await loadAllDraws();
+  aiCache.clear();
+  renderAll();
+  if (message) showToast(message);
 }
 
 function loadSyncStatus() {
@@ -1262,6 +1359,7 @@ function openView(name) {
   qsa('.nav-btn').forEach(button => button.classList.toggle('active', button.dataset.view === name));
   qsa('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
   if (name === 'archive') renderArchive(true);
+  if (name === 'ai') renderAiTimeView();
   if (name === 'analysis') renderAnalysis();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1290,6 +1388,20 @@ function bindQuickSummary() {
   });
 }
 
+function selectArchiveTime(time) {
+  if (!DRAW_TIMES.includes(time)) return;
+  archiveTime = time;
+  try { localStorage.setItem(ARCHIVE_TIME_KEY, archiveTime); } catch {}
+  renderArchive(true);
+}
+
+function selectAiTime(time) {
+  if (!DRAW_TIMES.includes(time)) return;
+  aiSelectedTime = time;
+  try { localStorage.setItem(AI_TIME_KEY, aiSelectedTime); } catch {}
+  renderAiTimeView();
+}
+
 function bindEvents() {
   qsa('.nav-btn').forEach(btn => btn.addEventListener('click', () => openView(btn.dataset.view)));
   bindQuickSummary();
@@ -1298,14 +1410,29 @@ function bindEvents() {
   $('onlineUpdateBtn').addEventListener('click',()=>checkOnlineDraws({manual:true}));
   $('dataOnlineUpdateBtn').addEventListener('click',()=>checkOnlineDraws({manual:true}));
   $('archiveSearch').addEventListener('input',()=>renderArchive(true));
+  $('archiveSearchScope').addEventListener('change',()=>{
+    archiveSearchScope = $('archiveSearchScope').value === 'all' ? 'all' : 'selected';
+    try { localStorage.setItem(ARCHIVE_SCOPE_KEY, archiveSearchScope); } catch {}
+    renderArchive(true);
+  });
   $('archiveLimit').addEventListener('change',()=>renderArchive(true));
+  $('archiveTimeChips').addEventListener('click', event => {
+    const button = event.target.closest('[data-archive-time]');
+    if (button) selectArchiveTime(button.dataset.archiveTime);
+  });
+  $('aiTimeChips').addEventListener('click', event => {
+    const button = event.target.closest('[data-ai-time]');
+    if (button) selectAiTime(button.dataset.aiTime);
+  });
   qsa('.archive-mode-btn').forEach(button => button.addEventListener('click', () => {
     archiveMode = button.dataset.archiveMode || 'normal';
     try { localStorage.setItem(ARCHIVE_MODE_KEY, archiveMode); } catch {}
     renderArchive(true);
   }));
   $('loadMoreBtn').addEventListener('click',()=>{ archiveShown+=Number($('archiveLimit').value)||50; renderArchive(); });
-  $('aiRecalcBtn').addEventListener('click',()=>{ aiCache=null; renderAiPanel(); showToast('ИИ-модель пересчитана на текущем архиве'); });
+  $('aiRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiPanel(); showToast('ИИ-модель пересчитана по архиву времени'); });
+  $('openAiViewBtn').addEventListener('click',()=>openView('ai'));
+  $('aiTimeRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiTimeView(); showToast(`Модель ${aiSelectedTime} пересчитана`); });
   $('analysisRange').addEventListener('change',renderAnalysis);
   $('digitSearchLength').addEventListener('change',()=>updateDigitSearchControls({keepValues:true}));
   $('digitSearchForm').addEventListener('submit',e=>{e.preventDefault();renderDigitSearch();});
@@ -1376,7 +1503,13 @@ async function initializeStorage() {
 function start() {
   try {
     const savedMode = localStorage.getItem(ARCHIVE_MODE_KEY);
+    const savedArchiveTime = localStorage.getItem(ARCHIVE_TIME_KEY);
+    const savedArchiveScope = localStorage.getItem(ARCHIVE_SCOPE_KEY);
+    const savedAiTime = localStorage.getItem(AI_TIME_KEY);
     if (['normal','normal-diff','mirror','mirror-diff'].includes(savedMode)) archiveMode = savedMode;
+    if (DRAW_TIMES.includes(savedArchiveTime)) archiveTime = savedArchiveTime;
+    if (['selected','all'].includes(savedArchiveScope)) archiveSearchScope = savedArchiveScope;
+    if (DRAW_TIMES.includes(savedAiTime)) aiSelectedTime = savedAiTime;
   } catch {}
   const versionNode = document.querySelector('.version');
   if (versionNode) versionNode.textContent = `v${APP_VERSION}`;

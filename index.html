@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.14 — Позитроны, зеркальный архив и ИИ</title>
+  <title>Yulia TOP-3 v1.0.15 — архивы по времени и ИИ Позитрон</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=1.0.14">
+  <link rel="stylesheet" href="styles.css?v=1.0.15">
   <script>
-    window.TOP3_BUILD = '1.0.14';
+    window.TOP3_BUILD = '1.0.15';
 </script>
 </head>
 <body>
@@ -28,7 +28,7 @@
       <img src="icon-192.png" alt="Логотип Yulia TOP-3">
       <div>
         <h1>Yulia TOP-3</h1>
-        <p><span class="version">v1.0.14</span> <span id="dbBadge">База загружается…</span></p>
+        <p><span class="version">v1.0.15</span> <span id="dbBadge">База загружается…</span></p>
       </div>
     </div>
     <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
@@ -71,16 +71,16 @@
         <div class="section-head ai-head">
           <div>
             <span class="eyebrow">ЭКСПЕРИМЕНТАЛЬНАЯ МОДЕЛЬ</span>
-            <h3 id="aiTitle">ИИ Позитрон — следующий переход</h3>
+            <h3 id="aiTitle">ИИ Позитрон по времени</h3>
           </div>
           <span id="aiSignalBadge" class="ai-signal weak">Слабый сигнал</span>
         </div>
-        <p class="panel-note">Модель отдельно оценивает три поля перехода по модулю 10. Она использует время следующего тиража, предыдущие переходы, исходные цифры и частоты в нескольких окнах. Это аналитический эксперимент, а не гарантия результата.</p>
+        <p class="panel-note">Модель работает только с архивом выбранного времени: например, 13:40 сравнивается с предыдущими 13:40 по дням. Три поля оцениваются отдельно по модулю 10. Это аналитический эксперимент, а не гарантия результата.</p>
         <div id="aiContext" class="ai-context"></div>
         <div id="aiMainPrediction" class="ai-main-prediction"></div>
         <div id="aiColumnPredictions" class="ai-columns"></div>
         <div id="aiBacktest" class="ai-backtest"></div>
-        <button id="aiRecalcBtn" class="secondary-btn wide" type="button">Пересчитать ИИ-модель</button>
+        <div class="ai-home-actions"><button id="aiRecalcBtn" class="secondary-btn" type="button">Пересчитать</button><button id="openAiViewBtn" class="primary-btn" type="button">Открыть ИИ по времени</button></div>
       </section>
 
       <section class="panel quick-panel">
@@ -120,6 +120,17 @@
         <h2 id="archiveTitle">Архив тиражей</h2>
         <p id="archiveInfo">—</p>
       </div>
+      <section class="panel time-archive-panel" aria-labelledby="archiveTimeTitle">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">10 АРХИВОВ ПО ВРЕМЕНИ</span>
+            <h3 id="archiveTimeTitle">Выбери время тиража</h3>
+          </div>
+        </div>
+        <div id="archiveTimeChips" class="time-chip-row" role="group" aria-label="Время архива"></div>
+        <p id="archiveTimeSummary" class="time-summary">—</p>
+      </section>
+
       <section class="panel archive-mode-panel" aria-labelledby="archiveModeTitle">
         <div class="section-head">
           <div>
@@ -135,12 +146,43 @@
         </div>
         <p id="archiveModeHelp" class="archive-mode-help">Показываются фактические комбинации из трёх независимых полей 0–9.</p>
       </section>
-      <section class="panel filters">
+      <section class="panel filters archive-filters">
         <label>Поиск: +106 — точная разница; 106 — точная комбинация; №267106 — тираж<input id="archiveSearch" type="search" placeholder="Например: +106, 106 или №267106"></label>
-        <label>Показывать<select id="archiveLimit"><option value="50">50 тиражей</option><option value="100">100 тиражей</option><option value="250">250 тиражей</option></select></label>
+        <div class="filter-grid">
+          <label>Область поиска<select id="archiveSearchScope"><option value="selected">Только выбранное время</option><option value="all">Все 10 времён</option></select></label>
+          <label>Показывать<select id="archiveLimit"><option value="50">50 тиражей</option><option value="100">100 тиражей</option><option value="250">250 тиражей</option></select></label>
+        </div>
       </section>
       <div id="archiveList" class="archive-list"></div>
       <button id="loadMoreBtn" class="secondary-btn wide" type="button">Показать ещё</button>
+    </section>
+
+    <section id="view-ai" class="view" aria-labelledby="aiTimeTitle">
+      <div class="page-title">
+        <span class="eyebrow">10 СПЕЦИАЛИЗИРОВАННЫХ МОДЕЛЕЙ</span>
+        <h2 id="aiTimeTitle">ИИ Позитрон по времени</h2>
+        <p>Каждая модель обучается только на переходах одного времени: 13:40 → 13:40 следующего дня, 16:25 → 16:25 и так далее.</p>
+      </div>
+      <section class="panel time-archive-panel">
+        <div class="section-head"><div><span class="eyebrow">ВРЕМЯ МОДЕЛИ</span><h3>Выбери архив</h3></div></div>
+        <div id="aiTimeChips" class="time-chip-row" role="group" aria-label="Время ИИ-модели"></div>
+        <p id="aiTimeSummary" class="time-summary">—</p>
+      </section>
+      <section class="panel ai-panel" aria-labelledby="aiTimePanelTitle">
+        <div class="section-head ai-head">
+          <div>
+            <span class="eyebrow">ПРОГНОЗ ПЕРЕХОДА ПО ДНЯМ</span>
+            <h3 id="aiTimePanelTitle">ИИ Позитрон</h3>
+          </div>
+          <span id="aiTimeSignalBadge" class="ai-signal weak">Слабый сигнал</span>
+        </div>
+        <p class="panel-note">Основная цифра и два резерва рассчитываются отдельно для каждого поля. Зеркальный переход показывается как точное преобразование основного, а не как второй независимый прогноз.</p>
+        <div id="aiTimeContext" class="ai-context"></div>
+        <div id="aiTimeMainPrediction" class="ai-main-prediction"></div>
+        <div id="aiTimeColumnPredictions" class="ai-columns"></div>
+        <div id="aiTimeBacktest" class="ai-backtest"></div>
+        <button id="aiTimeRecalcBtn" class="secondary-btn wide" type="button">Пересчитать модель выбранного времени</button>
+      </section>
     </section>
 
     <section id="view-analysis" class="view" aria-labelledby="analysisTitle">
@@ -257,13 +299,14 @@
   <nav class="bottom-nav" aria-label="Навигация приложения">
     <button class="nav-btn active" data-view="home" type="button"><span>⌂</span><b>Главная</b></button>
     <button class="nav-btn" data-view="archive" type="button"><span>▤</span><b>Архив</b></button>
+    <button class="nav-btn" data-view="ai" type="button"><span>✦</span><b>ИИ</b></button>
     <button class="nav-btn" data-view="analysis" type="button"><span>⌁</span><b>Анализ</b></button>
     <button class="nav-btn" data-view="data" type="button"><span>⇅</span><b>Данные</b></button>
   </nav>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="top3-data.js?v=1.0.14"></script>
-  <script src="app.js?v=1.0.14"></script>
+  <script src="top3-data.js?v=1.0.15"></script>
+  <script src="app.js?v=1.0.15"></script>
 </body>
 </html>
