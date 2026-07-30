@@ -8,134 +8,229 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0</title>
+  <title>Yulia TOP-3 v1.0.2 — поиск и цепочки</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #030817;
-      --panel: rgba(12, 28, 70, 0.92);
-      --line: rgba(52, 211, 255, 0.35);
-      --cyan: #35d8ff;
-      --gold: #ffd53d;
-      --text: #f7fbff;
-      --muted: #a8b6d7;
-    }
-
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; }
-
-    body {
-      min-height: 100vh;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at 50% 0%, rgba(0, 116, 255, 0.34), transparent 36%),
-        linear-gradient(180deg, #071b4d 0%, var(--bg) 70%);
-      padding: calc(24px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
-    }
-
-    .app { width: min(100%, 520px); margin: 0 auto; }
-
-    .hero {
-      padding: 24px 20px;
-      text-align: center;
-      background: linear-gradient(180deg, rgba(17, 48, 116, 0.94), rgba(5, 19, 54, 0.96));
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      box-shadow: 0 22px 70px rgba(0, 0, 0, 0.38), inset 0 0 45px rgba(37, 194, 255, 0.08);
-    }
-
-    .logo {
-      width: min(72vw, 310px);
-      max-width: 100%;
-      display: block;
-      margin: 0 auto 18px;
-      border-radius: 24%;
-      box-shadow: 0 16px 45px rgba(0, 158, 255, 0.28);
-    }
-
-    h1 { margin: 0; font-size: clamp(28px, 8vw, 44px); letter-spacing: 0.02em; }
-
-    .version {
-      display: inline-block;
-      margin-top: 10px;
-      padding: 6px 12px;
-      border-radius: 999px;
-      color: #00152e;
-      background: linear-gradient(90deg, var(--cyan), #9cecff);
-      font-weight: 800;
-    }
-
-    .subtitle {
-      margin: 18px auto 0;
-      max-width: 360px;
-      color: var(--muted);
-      line-height: 1.55;
-      font-size: 16px;
-    }
-
-    .status {
-      margin-top: 18px;
-      padding: 14px 16px;
-      border-radius: 18px;
-      background: rgba(2, 10, 29, 0.72);
-      border: 1px solid rgba(255, 213, 61, 0.28);
-      color: #fff4bf;
-      font-weight: 700;
-    }
-
-    .digits {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin-top: 20px;
-    }
-
-    .digit {
-      display: grid;
-      place-items: center;
-      aspect-ratio: 1;
-      border-radius: 24px;
-      font-size: clamp(38px, 13vw, 64px);
-      font-weight: 900;
-      background: linear-gradient(145deg, rgba(30, 101, 228, 0.92), rgba(5, 24, 71, 0.95));
-      border: 1px solid rgba(81, 221, 255, 0.44);
-      box-shadow: inset 0 0 28px rgba(79, 213, 255, 0.12);
-    }
-
-    .digit:nth-child(2) { color: #091536; background: linear-gradient(145deg, #ffffff, #a9c9ff); }
-    .digit:nth-child(3) { color: #2b1a00; background: linear-gradient(145deg, #ffe66c, #f7a800); border-color: rgba(255, 223, 102, 0.7); }
-
-    footer { margin-top: 18px; text-align: center; color: #7890bd; font-size: 13px; }
-  </style>
+  <link rel="stylesheet" href="styles.css?v=1.0.2">
 </head>
 <body>
-  <main class="app">
-    <section class="hero" aria-labelledby="app-title">
-      <img class="logo" src="icon-top3-yulia-v1.png" alt="Логотип Yulia TOP-3">
-      <h1 id="app-title">Yulia TOP-3</h1>
-      <span class="version">v1.0</span>
-      <p class="subtitle">Первый экран нового приложения для архива и анализа тиражей «Топ-3».</p>
-      <div class="status">Основа приложения создана ✅</div>
-      <div class="digits" aria-label="Пример трёх цифр">
-        <div class="digit">1</div>
-        <div class="digit">3</div>
-        <div class="digit">7</div>
+  <div id="loading" class="loading" role="status" aria-live="polite">
+    <img src="icon-192.png" alt="">
+    <strong>Yulia TOP-3</strong>
+    <span id="loadingText">Загружаю архив тиражей…</span>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="icon-192.png" alt="Логотип Yulia TOP-3">
+      <div>
+        <h1>Yulia TOP-3</h1>
+        <p><span class="version">v1.0.2</span> <span id="dbBadge">База загружается…</span></p>
       </div>
+    </div>
+    <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
+  </header>
+
+  <main class="app-shell">
+    <section id="view-home" class="view active" aria-labelledby="homeTitle">
+      <div class="hero-mini">
+        <div>
+          <span class="eyebrow">ПОСЛЕДНИЙ ТИРАЖ В БАЗЕ</span>
+          <h2 id="homeTitle">Архив «Топ-3»</h2>
+        </div>
+        <div class="next-draw">
+          <span>Следующий розыгрыш</span>
+          <strong id="nextDraw">—</strong>
+          <small>по московскому времени</small>
+        </div>
+      </div>
+
+      <section class="panel sync-panel" aria-labelledby="syncTitle">
+        <div class="sync-head">
+          <div>
+            <span class="eyebrow">АВТООБНОВЛЕНИЕ</span>
+            <h3 id="syncTitle">Lucky Numbers</h3>
+          </div>
+          <span id="syncState" class="sync-badge idle">Ожидание</span>
+        </div>
+        <div class="sync-grid">
+          <div><span>Последняя проверка</span><strong id="syncLastCheck">Ещё не выполнялась</strong></div>
+          <div><span>Последнее успешное обновление</span><strong id="syncLastSuccess">—</strong></div>
+          <div><span>Источник</span><strong id="syncSource">Lucky Numbers</strong></div>
+        </div>
+        <p id="syncMessage" class="sync-message">При открытии приложения проверю новые тиражи. Затем — каждые 15 минут, пока приложение открыто.</p>
+        <button id="onlineUpdateBtn" class="primary-btn" type="button">Обновить сейчас</button>
+      </section>
+
+      <div id="latestCards" class="latest-grid"></div>
+
+      <section class="panel quick-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">БЫСТРАЯ СВОДКА</span>
+            <h3>Последние 100 тиражей</h3>
+          </div>
+        </div>
+        <div id="quickStats" class="stat-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">ДОБАВИТЬ ФАКТ</span>
+            <h3>Новый тираж вручную</h3>
+          </div>
+        </div>
+        <form id="manualForm" class="manual-form">
+          <label>Номер тиража<input id="manualId" type="number" inputmode="numeric" required></label>
+          <label>Дата<input id="manualDate" type="text" inputmode="numeric" placeholder="30.07.26" required></label>
+          <label>Время<input id="manualTime" type="time" required></label>
+          <div class="digit-inputs" aria-label="Три выпавшие цифры">
+            <label>1<input id="manualA" type="number" min="0" max="9" inputmode="numeric" required></label>
+            <label>2<input id="manualB" type="number" min="0" max="9" inputmode="numeric" required></label>
+            <label>3<input id="manualC" type="number" min="0" max="9" inputmode="numeric" required></label>
+          </div>
+          <button class="primary-btn" type="submit">Сохранить тираж</button>
+        </form>
+      </section>
     </section>
-    <footer>pozitron-top3-v1.0</footer>
+
+    <section id="view-archive" class="view" aria-labelledby="archiveTitle">
+      <div class="page-title">
+        <span class="eyebrow">ВСЯ ИСТОРИЯ</span>
+        <h2 id="archiveTitle">Архив тиражей</h2>
+        <p id="archiveInfo">—</p>
+      </div>
+      <section class="panel filters">
+        <label>Поиск по номеру или дате<input id="archiveSearch" type="search" placeholder="Например: 267354 или 30.07.26"></label>
+        <label>Показывать<select id="archiveLimit"><option value="50">50 тиражей</option><option value="100">100 тиражей</option><option value="250">250 тиражей</option></select></label>
+      </section>
+      <div id="archiveList" class="archive-list"></div>
+      <button id="loadMoreBtn" class="secondary-btn wide" type="button">Показать ещё</button>
+    </section>
+
+    <section id="view-analysis" class="view" aria-labelledby="analysisTitle">
+      <div class="page-title">
+        <span class="eyebrow">СТАТИСТИКА БАЗЫ</span>
+        <h2 id="analysisTitle">Анализ цифр</h2>
+        <p>Статистика не гарантирует выигрыш. Она показывает только фактические частоты архива.</p>
+      </div>
+      <section class="panel range-panel">
+        <label>Период анализа<select id="analysisRange"><option value="50">Последние 50</option><option value="100" selected>Последние 100</option><option value="500">Последние 500</option><option value="2000">Последние 2000</option><option value="all">Вся база</option></select></label>
+      </section>
+
+      <section class="panel digit-search-panel" aria-labelledby="digitSearchTitle">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">ПОИСК ПО АРХИВУ</span>
+            <h3 id="digitSearchTitle">Одна, две или три цифры</h3>
+          </div>
+        </div>
+        <p class="panel-note">Ищи отдельную цифру, точную пару или полную тройку. Для каждого совпадения показывается соседняя цепочка: предыдущий → найденный → следующий тираж.</p>
+        <form id="digitSearchForm" class="digit-search-form">
+          <div class="search-mode-grid">
+            <label>Сколько цифр
+              <select id="digitSearchLength">
+                <option value="1">1 цифра</option>
+                <option value="2">2 цифры</option>
+                <option value="3">3 цифры</option>
+              </select>
+            </label>
+            <label>Где искать
+              <select id="digitSearchScope"></select>
+            </label>
+          </div>
+          <div id="digitSearchInputs" class="digit-search-inputs">
+            <label>Цифра 1<input id="digitSearchA" type="number" min="0" max="9" inputmode="numeric" required></label>
+            <label>Цифра 2<input id="digitSearchB" type="number" min="0" max="9" inputmode="numeric"></label>
+            <label>Цифра 3<input id="digitSearchC" type="number" min="0" max="9" inputmode="numeric"></label>
+          </div>
+          <button class="primary-btn" type="submit">Найти совпадения</button>
+        </form>
+        <div id="digitSearchSummary" class="search-summary">Выбери режим и нажми «Найти совпадения».</div>
+        <div id="digitSearchResults" class="search-results"></div>
+      </section>
+
+      <section class="panel chain-panel" aria-labelledby="chainTitle">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">ЦЕПОЧКИ КАК В КЕНО</span>
+            <h3 id="chainTitle">Поиск продолжения</h3>
+          </div>
+        </div>
+        <p class="panel-note">Приложение берёт последние 1, 2 или 3 тиража и ищет такие же цепочки во всей базе. Продолжения считаются отдельно для каждой позиции и для полной тройки.</p>
+        <div class="chain-controls">
+          <label>Длина цепочки
+            <select id="chainLength">
+              <option value="1">Последний 1 тираж</option>
+              <option value="2">Последние 2 тиража</option>
+              <option value="3">Последние 3 тиража</option>
+            </select>
+          </label>
+          <button id="chainSearchBtn" class="primary-btn" type="button">Искать продолжение</button>
+        </div>
+        <div>
+          <span class="eyebrow">ПОСЛЕДНЯЯ ЦЕПОЧКА</span>
+          <div id="recentChain" class="recent-chain"></div>
+        </div>
+        <div id="chainSearchSummary" class="search-summary"></div>
+        <div id="chainSearchResults" class="chain-results"></div>
+      </section>
+      <section class="panel">
+        <div class="section-head"><div><span class="eyebrow">ПОЗИЦИИ 1–2–3</span><h3>Частота цифр 0–9</h3></div></div>
+        <div id="frequencyCharts" class="frequency-wrap"></div>
+      </section>
+      <section class="panel">
+        <div class="section-head"><div><span class="eyebrow">ПЕРЕХОДЫ</span><h3>Что чаще шло после последних цифр</h3></div></div>
+        <div id="transitionCards" class="transition-grid"></div>
+      </section>
+      <section class="panel">
+        <div class="section-head"><div><span class="eyebrow">КОМБИНАЦИИ</span><h3>Частые точные тройки</h3></div></div>
+        <div id="comboTable" class="combo-list"></div>
+      </section>
+    </section>
+
+    <section id="view-data" class="view" aria-labelledby="dataTitle">
+      <div class="page-title">
+        <span class="eyebrow">БАЗА И РЕЗЕРВ</span>
+        <h2 id="dataTitle">Данные приложения</h2>
+        <p>Все импортированные тиражи сохраняются в постоянной базе браузера с защитой от дублей по номеру.</p>
+      </div>
+      <section class="panel data-status">
+        <div><span>Тиражей в базе</span><strong id="dataCount">—</strong></div>
+        <div><span>Первый тираж</span><strong id="dataFirst">—</strong></div>
+        <div><span>Последний тираж</span><strong id="dataLast">—</strong></div>
+      </section>
+      <section class="panel online-data-panel">
+        <div class="section-head"><div><span class="eyebrow">СВЕЖИЕ ТИРАЖИ</span><h3>Автозагрузка из Lucky Numbers</h3></div></div>
+        <p id="dataSyncSummary">При открытии приложения и каждые 15 минут выполняется безопасная проверка. Уже сохранённые тиражи не заменяются.</p>
+        <button id="dataOnlineUpdateBtn" class="secondary-btn" type="button">Проверить новые тиражи</button>
+      </section>
+      <section class="panel action-stack">
+        <label class="file-btn">Импортировать CSV<input id="csvInput" type="file" accept=".csv,text/csv" hidden></label>
+        <button id="exportCsvBtn" class="secondary-btn" type="button">Экспорт всей базы в CSV</button>
+        <button id="exportJsonBtn" class="secondary-btn" type="button">Резервная копия JSON</button>
+        <label class="file-btn secondary">Восстановить из JSON<input id="jsonInput" type="file" accept=".json,application/json" hidden></label>
+        <button id="resetSeedBtn" class="danger-btn" type="button">Восстановить встроенный архив</button>
+      </section>
+      <section class="panel schedule-panel">
+        <div class="section-head"><div><span class="eyebrow">РАСПИСАНИЕ</span><h3>Розыгрыши по Москве</h3></div></div>
+        <p>02:40 · 04:40 · 06:40 · 07:40 · 09:40 · 11:40 · 13:40 · 16:25 · 21:25 · 22:40</p>
+      </section>
+    </section>
   </main>
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch((error) => {
-          console.error('Service Worker registration failed:', error);
-        });
-      });
-    }
-  </script>
+
+  <nav class="bottom-nav" aria-label="Навигация приложения">
+    <button class="nav-btn active" data-view="home" type="button"><span>⌂</span><b>Главная</b></button>
+    <button class="nav-btn" data-view="archive" type="button"><span>▤</span><b>Архив</b></button>
+    <button class="nav-btn" data-view="analysis" type="button"><span>⌁</span><b>Анализ</b></button>
+    <button class="nav-btn" data-view="data" type="button"><span>⇅</span><b>Данные</b></button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="top3-data.js"></script>
+  <script src="app.js?v=1.0.2"></script>
 </body>
 </html>

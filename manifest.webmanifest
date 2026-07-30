@@ -1,7 +1,7 @@
 {
   "name": "Yulia TOP-3",
   "short_name": "TOP-3",
-  "description": "Архив и анализ тиражей лотереи Топ-3.",
+  "description": "Архив, безопасное автообновление Lucky Numbers, поиск по 1–3 цифрам и анализ цепочек тиражей Топ-3.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
