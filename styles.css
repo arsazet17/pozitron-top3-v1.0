@@ -440,7 +440,7 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
 @media(max-width:720px){.forecast-grid,.forecast-filter-row{grid-template-columns:1fr}.forecast-core{grid-template-columns:repeat(2,minmax(0,1fr))}.forecast-chain-row{grid-template-columns:1fr auto}.forecast-chain-results{grid-column:1/-1}}
 
 
-/* v1.0.22 — автоматический прогноз прямо под последним тиражом */
+/* v1.0.23 — проверка только по реально прошедшим тиражам */
 .home-forecast-panel{border-color:rgba(255,215,77,.42);background:linear-gradient(150deg,rgba(8,36,93,.98),rgba(5,24,64,.98));padding:18px}
 .home-forecast-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
 .home-forecast-head h3{margin:.35rem 0 .15rem;font-size:1.55rem}.home-forecast-head p{margin:0;color:#a9bce0}
@@ -455,3 +455,9 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
 .home-forecast-chain-row>div:first-child strong,.home-forecast-chain-row>div:first-child small{display:block}.home-forecast-chain-row>div:first-child small{color:#9fb2d8;margin-top:3px}.home-forecast-chain-row>span{color:#c6d4ef;font-size:.78rem}.home-forecast-chain-row.full-hit{outline:1px solid rgba(75,224,151,.45)}.home-forecast-chain-row.pair-hit{outline:1px solid rgba(75,156,255,.4)}
 .home-forecast-waiting{margin:12px 0 0;color:#d9e5ff}
 @media(max-width:620px){.home-forecast-head{display:grid}.home-forecast-delta{min-width:0}.home-forecast-variants{grid-template-columns:repeat(3,minmax(0,1fr))}.home-forecast-variant strong{font-size:1.45rem}.home-forecast-chain-row{grid-template-columns:1fr auto}.home-forecast-chain-row>span{grid-column:1/-1}}
+
+/* v1.0.23 */
+.home-forecast-facts-note{margin:8px 0 10px;color:var(--muted);font-size:.84rem}
+.home-forecast-chain-result{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.home-forecast-chain-result small{font-size:.76rem;color:var(--muted)}
+.home-forecast-chain-result small.delta-hit{color:#20c997;font-weight:800}

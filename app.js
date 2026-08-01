@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.22';
+const APP_VERSION = '1.0.23';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -722,12 +722,17 @@ function forecastVariantTile(code, index) {
 }
 
 function compactForecastChain(item, maxLength=5) {
-  const ordered=[...draws].sort((a,b)=>a.id-b.id);
+  const ordered=[...draws].sort((a,b)=>Number(a.id)-Number(b.id));
   const start=ordered.findIndex(draw=>Number(draw.id)===Number(item.targetId));
-  if (start<0) return '<p class="home-forecast-waiting">Ожидается следующий тираж. Проверка начнётся автоматически после его выхода.</p>';
+  if (start<0) return '<p class="home-forecast-waiting">Прогнозный тираж ещё не вышел. Проверка появится автоматически после факта.</p>';
   const variants=(item.variants||[]).filter(Boolean);
-  return ordered.slice(start,start+maxLength).map((draw,index)=>{
+  const predictedDeltas=[item.delta,...(item.deltaVariants||[])].filter(Boolean);
+  const realFacts=ordered.slice(start,Math.min(ordered.length,start+maxLength));
+  return realFacts.map((draw,index)=>{
     const actual=drawCode(draw);
+    const previous=index===0 ? previousOverallDraw(draw.id) : realFacts[index-1];
+    const actualDelta=previous ? codeOfDigits(positronDifference(previous,draw)) : '';
+    const deltaHit=actualDelta && predictedDeltas.includes(actualDelta);
     const infos=variants.map(v=>forecastHitInfo(v,actual));
     const full=infos.some(info=>info.full);
     const exact=Math.max(0,...infos.map(info=>info.exactCount));
@@ -739,9 +744,9 @@ function compactForecastChain(item, maxLength=5) {
     else if(pairs.length) result=`пара ${pairs.join(', ')}`;
     else if(present) result=`совпало цифр: ${present}`;
     return `<div class="home-forecast-chain-row ${full?'full-hit':pairs.length?'pair-hit':''}">
-      <div><strong>${index===0?'Факт':`Через ${index}`}</strong><small>№${draw.id} · ${draw.time}</small></div>
+      <div><strong>${index===0?'Факт':`Через ${index}`}</strong><small>№${draw.id} · ${draw.date} · ${draw.time}</small></div>
       ${highlightedActualDigits(actual,variants)}
-      <span>${result}</span>
+      <div class="home-forecast-chain-result"><span>${result}</span>${actualDelta?`<small class="${deltaHit?'delta-hit':''}">Δ +${actualDelta}${deltaHit?' — совпала':''}</small>`:''}</div>
     </div>`;
   }).join('');
 }
@@ -750,8 +755,9 @@ function renderHomeForecast() {
   const panel=$('homeForecastPanel');
   if(!panel) return;
   const current=ensureAutomaticForecast();
+  const latestFactId=Number(draws[0]?.id || 0);
   const checked=[...forecastArchive]
-    .filter(item=>item.automatic && drawById(item.targetId))
+    .filter(item=>item.automatic && Number(item.targetId)===latestFactId && drawById(item.targetId))
     .sort((a,b)=>Number(b.targetId)-Number(a.targetId))[0] || null;
   if(!current){
     panel.innerHTML='<span class="eyebrow">ПРОГНОЗ НА СЛЕДУЮЩИЙ ТИРАЖ</span><p class="panel-note">Недостаточно данных для автоматического расчёта.</p>';
@@ -764,7 +770,7 @@ function renderHomeForecast() {
       <div class="home-forecast-delta"><span>Предполагаемая разница</span><strong>+${current.delta}</strong></div>
     </div>
     <div class="home-forecast-variants">${variants.map(forecastVariantTile).join('')}</div>
-    ${checked?`<details class="home-forecast-details"><summary>Проверка предыдущего прогноза №${checked.targetId}</summary><div class="home-forecast-chain">${compactForecastChain(checked,5)}</div></details>`:''}
+    ${checked?`<details class="home-forecast-details"><summary>Проверка прогноза по прошедшим тиражам №${checked.targetId}</summary><p class="home-forecast-facts-note">Ниже показаны только тиражи, которые уже есть в архиве.</p><div class="home-forecast-chain">${compactForecastChain(checked,5)}</div></details>`:'<p class="home-forecast-waiting">Проверка появится здесь после выхода тиража, на который был сделан текущий прогноз.</p>'}
   `;
 }
 
