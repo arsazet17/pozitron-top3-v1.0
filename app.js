@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.21';
+const APP_VERSION = '1.0.22';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -11,7 +11,7 @@ const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
 const ARCHIVE_TIME_KEY = 'yulia-top3-archive-time-v1';
 const ARCHIVE_SCOPE_KEY = 'yulia-top3-archive-scope-v1';
 const AI_TIME_KEY = 'yulia-top3-ai-time-v1';
-const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v1';
+const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v2-auto';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
 
@@ -667,8 +667,110 @@ function quickStatsData(list) {
   ];
 }
 
+
+function automaticForecastVariants(analysis) {
+  if (!analysis) return null;
+  const deltaVariants = [0,1,2].map(rankIndex => analysis.rankings.map(ranking => ranking[rankIndex]?.digit ?? ranking[0]?.digit ?? 0));
+  const combinations = deltaVariants.map(deltaDigits => analysis.latest
+    ? digitsOf(analysis.latest).map((digit,index)=>mod10(digit + deltaDigits[index]))
+    : []);
+  return {
+    targetId: Number(draws[0]?.id || 0) + 1,
+    targetTime: analysis.next?.time || nextDrawAfterLatest(draws[0]).time,
+    targetDate: analysis.next?.date || '',
+    baseId: analysis.latest?.id || null,
+    baseCode: analysis.latest ? drawCode(analysis.latest) : '',
+    delta: codeOfDigits(deltaVariants[0]),
+    deltaVariants: deltaVariants.map(codeOfDigits),
+    variants: combinations.map(codeOfDigits)
+  };
+}
+
+function ensureAutomaticForecast() {
+  if (!draws[0]) return null;
+  const targetId = Number(draws[0].id) + 1;
+  let item = forecastArchive.find(entry => Number(entry.targetId) === targetId && entry.automatic);
+  if (item) return item;
+  const nextTime = nextDrawAfterLatest(draws[0]).time;
+  const analysis = buildAiAnalysisForTime(nextTime);
+  const generated = automaticForecastVariants(analysis);
+  if (!generated || generated.variants.some(code => !/^\d{3}$/.test(code))) return null;
+  item = {
+    id:`auto-${targetId}`,
+    automatic:true,
+    createdAt:new Date().toISOString(),
+    targetId:generated.targetId,
+    targetDate:generated.targetDate,
+    targetTime:generated.targetTime,
+    baseId:generated.baseId,
+    baseCode:generated.baseCode,
+    delta:generated.delta,
+    deltaVariants:generated.deltaVariants,
+    variants:generated.variants
+  };
+  forecastArchive.push(item);
+  forecastArchive = forecastArchive
+    .sort((a,b)=>Number(a.targetId)-Number(b.targetId))
+    .slice(-120);
+  saveForecastArchive();
+  return item;
+}
+
+function forecastVariantTile(code, index) {
+  const labels=['Вариант 1','Вариант 2','Вариант 3'];
+  return `<div class="home-forecast-variant variant-${index+1}"><span>${labels[index]}</span><strong>${code}</strong></div>`;
+}
+
+function compactForecastChain(item, maxLength=5) {
+  const ordered=[...draws].sort((a,b)=>a.id-b.id);
+  const start=ordered.findIndex(draw=>Number(draw.id)===Number(item.targetId));
+  if (start<0) return '<p class="home-forecast-waiting">Ожидается следующий тираж. Проверка начнётся автоматически после его выхода.</p>';
+  const variants=(item.variants||[]).filter(Boolean);
+  return ordered.slice(start,start+maxLength).map((draw,index)=>{
+    const actual=drawCode(draw);
+    const infos=variants.map(v=>forecastHitInfo(v,actual));
+    const full=infos.some(info=>info.full);
+    const exact=Math.max(0,...infos.map(info=>info.exactCount));
+    const present=Math.max(0,...infos.map(info=>info.presentCount));
+    const pairs=[...new Set(infos.flatMap(info=>info.pairs))];
+    let result='нет совпадений';
+    if(full) result='полное совпадение';
+    else if(exact>=2) result=`${exact} поля по месту`;
+    else if(pairs.length) result=`пара ${pairs.join(', ')}`;
+    else if(present) result=`совпало цифр: ${present}`;
+    return `<div class="home-forecast-chain-row ${full?'full-hit':pairs.length?'pair-hit':''}">
+      <div><strong>${index===0?'Факт':`Через ${index}`}</strong><small>№${draw.id} · ${draw.time}</small></div>
+      ${highlightedActualDigits(actual,variants)}
+      <span>${result}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderHomeForecast() {
+  const panel=$('homeForecastPanel');
+  if(!panel) return;
+  const current=ensureAutomaticForecast();
+  const checked=[...forecastArchive]
+    .filter(item=>item.automatic && drawById(item.targetId))
+    .sort((a,b)=>Number(b.targetId)-Number(a.targetId))[0] || null;
+  if(!current){
+    panel.innerHTML='<span class="eyebrow">ПРОГНОЗ НА СЛЕДУЮЩИЙ ТИРАЖ</span><p class="panel-note">Недостаточно данных для автоматического расчёта.</p>';
+    return;
+  }
+  const variants=(current.variants||[]).slice(0,3);
+  panel.innerHTML=`
+    <div class="home-forecast-head">
+      <div><span class="eyebrow">ПРОГНОЗ НА СЛЕДУЮЩИЙ ТИРАЖ</span><h3>Тираж №${current.targetId}</h3><p>${current.targetDate||''}${current.targetTime?` · ${current.targetTime}`:''}</p></div>
+      <div class="home-forecast-delta"><span>Предполагаемая разница</span><strong>+${current.delta}</strong></div>
+    </div>
+    <div class="home-forecast-variants">${variants.map(forecastVariantTile).join('')}</div>
+    ${checked?`<details class="home-forecast-details"><summary>Проверка предыдущего прогноза №${checked.targetId}</summary><div class="home-forecast-chain">${compactForecastChain(checked,5)}</div></details>`:''}
+  `;
+}
+
 function renderHome() {
   $('latestCards').innerHTML = draws.slice(0,3).map((d,i)=>drawCard(d,i)).join('');
+  renderHomeForecast();
   $('quickStats').innerHTML = quickStatsData(draws.slice(0,100)).map(([k,v])=>`<div class="stat"><span>${k}</span><strong>${v}</strong></div>`).join('');
   if (draws[0]) {
     $('manualId').value = draws[0].id + 1;
@@ -1631,7 +1733,7 @@ function bindEvents() {
   $('digitSearchForm').addEventListener('submit',e=>{e.preventDefault();renderDigitSearch();});
   $('chainLength').addEventListener('change',renderChainSearch);
   $('chainSearchBtn').addEventListener('click',renderChainSearch);
-  $('openForecastCheckBtn').addEventListener('click',()=>openView('forecast-check'));
+  if ($('openForecastCheckBtn')) $('openForecastCheckBtn').addEventListener('click',()=>openView('forecast-check'));
   $('forecastBackBtn').addEventListener('click',()=>openView('analysis'));
   $('forecastTargetId').addEventListener('input',updateForecastBasePreview);
   $('forecastDelta').addEventListener('input',()=>{

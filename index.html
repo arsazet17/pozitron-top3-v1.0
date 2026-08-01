@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.21 — архивы по времени и ИИ Позитрон</title>
+  <title>Yulia TOP-3 v1.0.22 — архивы по времени и ИИ Позитрон</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="styles.css?v=1.0.21">
   <script>
-    window.TOP3_BUILD = '1.0.21';
+    window.TOP3_BUILD = '1.0.22';
 </script>
 </head>
 <body>
@@ -66,6 +66,8 @@
       </section>
 
       <div id="latestCards" class="latest-grid"></div>
+
+      <section id="homeForecastPanel" class="panel home-forecast-panel" aria-live="polite"></section>
 
       <section class="panel ai-panel" aria-labelledby="aiTitle">
         <div class="section-head ai-head">
@@ -251,13 +253,6 @@
         </div>
         <div id="chainSearchSummary" class="search-summary"></div>
         <div id="chainSearchResults" class="chain-results"></div>
-      </section>
-      <section class="panel forecast-launch-panel" aria-labelledby="forecastLaunchTitle">
-        <div class="section-head">
-          <div><span class="eyebrow">АРХИВ ПРОГНОЗОВ</span><h3 id="forecastLaunchTitle">Проверка прогнозов и цепочек</h3></div>
-        </div>
-        <p class="panel-note">Отдельный экран сохраняет прогноз, предполагаемую разницу и три варианта комбинации. После выхода тиражей он автоматически подсвечивает полные совпадения, пары, отдельные цифры и совпадения по месту.</p>
-        <button id="openForecastCheckBtn" class="primary-btn wide" type="button">Открыть проверку прогнозов</button>
       </section>
 
       <section class="panel">

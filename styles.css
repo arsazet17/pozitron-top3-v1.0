@@ -438,3 +438,20 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
 .forecast-waiting{padding:18px;border-radius:14px;background:rgba(255,215,77,.08);color:#ffe99e}
 .forecast-delete-btn{margin-top:14px;width:100%}
 @media(max-width:720px){.forecast-grid,.forecast-filter-row{grid-template-columns:1fr}.forecast-core{grid-template-columns:repeat(2,minmax(0,1fr))}.forecast-chain-row{grid-template-columns:1fr auto}.forecast-chain-results{grid-column:1/-1}}
+
+
+/* v1.0.22 — автоматический прогноз прямо под последним тиражом */
+.home-forecast-panel{border-color:rgba(255,215,77,.42);background:linear-gradient(150deg,rgba(8,36,93,.98),rgba(5,24,64,.98));padding:18px}
+.home-forecast-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+.home-forecast-head h3{margin:.35rem 0 .15rem;font-size:1.55rem}.home-forecast-head p{margin:0;color:#a9bce0}
+.home-forecast-delta{min-width:150px;padding:12px 14px;border-radius:18px;background:rgba(255,211,73,.12);border:1px solid rgba(255,211,73,.36);text-align:center}
+.home-forecast-delta span{display:block;color:#d7def2;font-size:.72rem}.home-forecast-delta strong{display:block;margin-top:5px;color:#ffdb58;font-size:1.65rem}
+.home-forecast-variants{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:16px}
+.home-forecast-variant{padding:14px 10px;border-radius:18px;text-align:center;border:1px solid rgba(255,255,255,.15);background:#071b45}
+.home-forecast-variant span{display:block;color:#b8c8e8;font-size:.76rem;font-weight:800}.home-forecast-variant strong{display:block;margin-top:7px;font-size:1.75rem;letter-spacing:.08em}
+.home-forecast-variant.variant-1{border-color:rgba(75,190,255,.5)}.home-forecast-variant.variant-2{border-color:rgba(255,211,73,.5)}.home-forecast-variant.variant-3{border-color:rgba(111,231,188,.5)}
+.home-forecast-details{margin-top:14px;border-top:1px solid rgba(150,181,234,.16)}.home-forecast-details summary{cursor:pointer;padding:14px 0 4px;font-weight:850;color:#eaf2ff}
+.home-forecast-chain{display:grid;gap:8px;margin-top:10px}.home-forecast-chain-row{display:grid;grid-template-columns:minmax(105px,.8fr) auto minmax(120px,1fr);gap:9px;align-items:center;padding:10px;border-radius:14px;background:rgba(3,16,45,.7)}
+.home-forecast-chain-row>div:first-child strong,.home-forecast-chain-row>div:first-child small{display:block}.home-forecast-chain-row>div:first-child small{color:#9fb2d8;margin-top:3px}.home-forecast-chain-row>span{color:#c6d4ef;font-size:.78rem}.home-forecast-chain-row.full-hit{outline:1px solid rgba(75,224,151,.45)}.home-forecast-chain-row.pair-hit{outline:1px solid rgba(75,156,255,.4)}
+.home-forecast-waiting{margin:12px 0 0;color:#d9e5ff}
+@media(max-width:620px){.home-forecast-head{display:grid}.home-forecast-delta{min-width:0}.home-forecast-variants{grid-template-columns:repeat(3,minmax(0,1fr))}.home-forecast-variant strong{font-size:1.45rem}.home-forecast-chain-row{grid-template-columns:1fr auto}.home-forecast-chain-row>span{grid-column:1/-1}}
