@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.20';
+const APP_VERSION = '1.0.21';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -41,6 +41,26 @@ const VERIFIED_CORRECTIONS = [
 
 const $ = (id) => document.getElementById(id);
 const qsa = (sel) => [...document.querySelectorAll(sel)];
+
+function hideLoadingOverlay() {
+  const loading = $('loading');
+  if (!loading) return;
+  loading.classList.add('hidden');
+  loading.setAttribute('hidden', '');
+  loading.style.display = 'none';
+}
+
+function setUpdateButtonsReady() {
+  const busy = syncStatus.state === 'checking';
+  const disabled = busy || !storageReady;
+  for (const id of ['refreshBtn','onlineUpdateBtn','dataOnlineUpdateBtn']) {
+    const button = $(id);
+    if (button) {
+      button.disabled = disabled;
+      button.title = !storageReady ? 'Локальная база ещё загружается' : '';
+    }
+  }
+}
 
 function withTimeout(promise, ms, label='Операция') {
   return Promise.race([
@@ -1287,10 +1307,7 @@ function renderSyncStatus() {
   $('syncSource').textContent = syncStatus.source || 'GitHub TOP-3 Live';
   $('syncMessage').textContent = syncStatus.message || 'Свежие тиражи берутся из общего файла GitHub. Проверка — при открытии и каждые 5 минут.';
   const busy = syncStatus.state === 'checking';
-  for (const id of ['refreshBtn','onlineUpdateBtn','dataOnlineUpdateBtn']) {
-    const button = $(id);
-    if (button) button.disabled = busy;
-  }
+  setUpdateButtonsReady();
   $('refreshBtn').classList.toggle('spinning', busy);
 }
 
@@ -1477,6 +1494,12 @@ function validateOnlineBatch(items) {
 }
 
 async function checkOnlineDraws({ manual=false, silent=false }={}) {
+  hideLoadingOverlay();
+  if (!storageReady || !db) {
+    const message = 'Локальная база ещё загружается. Подожди несколько секунд — обновление запустится автоматически.';
+    if (manual) showToast(message);
+    return;
+  }
   if (syncInProgress) {
     if (manual) showToast('Проверка уже выполняется');
     return;
@@ -1702,11 +1725,16 @@ async function initializeStorage() {
     await applyVerifiedCorrections();
     await loadAllDraws();
     storageReady = true;
+    hideLoadingOverlay();
     renderAll();
+    setUpdateButtonsReady();
     startAutoChecks();
     setTimeout(() => checkOnlineDraws({silent:true}), 1000);
   } catch (error) {
     storageReady = false;
+    hideLoadingOverlay();
+    renderAll();
+    setUpdateButtonsReady();
     console.error('Ошибка локальной базы:', error);
     saveSyncStatus({
       state:'error',
@@ -1739,8 +1767,8 @@ function start() {
     eventsBound = true;
   }
   renderAll();
-  const loading = $('loading');
-  if (loading) loading.classList.add('hidden');
+  hideLoadingOverlay();
+  setUpdateButtonsReady();
 
   initializeStorage();
 
