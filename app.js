@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.23';
+const APP_VERSION = '1.0.24';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -10,7 +10,7 @@ const AUTO_STATUS_KEY = 'yulia-top3-auto-status-v1';
 const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
 const ARCHIVE_TIME_KEY = 'yulia-top3-archive-time-v1';
 const ARCHIVE_SCOPE_KEY = 'yulia-top3-archive-scope-v1';
-const AI_TIME_KEY = 'yulia-top3-ai-time-v1';
+const AI_TIME_KEY = 'yulia-top3-ai-time-v2';
 const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v2-auto';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
@@ -27,7 +27,7 @@ let eventsBound = false;
 let archiveMode = 'normal';
 let archiveTime = '13:40';
 let archiveSearchScope = 'selected';
-let aiSelectedTime = '13:40';
+let aiSelectedTime = 'all';
 let aiCache = new Map();
 let forecastArchive = loadForecastArchive();
 
@@ -336,6 +336,26 @@ function buildPositronTransitionsForTime(time, sourceDraws = draws) {
   return records;
 }
 
+function buildPositronTransitionsAll(sourceDraws = draws) {
+  const ordered = [...sourceDraws].sort((a,b) => a.id - b.id);
+  const records = [];
+  for (let index = 1; index < ordered.length; index++) {
+    const previous = ordered[index - 1];
+    const current = ordered[index];
+    const delta = positronDifference(previous, current);
+    const date = parseDrawDate(current.date);
+    records.push({
+      previous,
+      current,
+      delta,
+      time:current.time,
+      weekday:date ? date.getUTCDay() : 0,
+      dayGap:dateGapDays(previous, current)
+    });
+  }
+  return records;
+}
+
 function emptyDigitCounts() {
   return Array(10).fill(0);
 }
@@ -522,21 +542,22 @@ function runAiBacktest(records, testSize = 250) {
 }
 
 function buildAiAnalysisForTime(time) {
-  const timeDraws = drawsForTime(time);
-  const latest = timeDraws[0] || null;
-  const cacheKey = `${time}|${timeDraws.length}|${latest?.id || 0}|${latest ? drawCode(latest) : ''}`;
+  const isAll = time === 'all';
+  const modelDraws = isAll ? [...draws].sort((a,b) => b.id - a.id) : drawsForTime(time);
+  const latest = modelDraws[0] || null;
+  const cacheKey = `${time}|${modelDraws.length}|${latest?.id || 0}|${latest ? drawCode(latest) : ''}`;
   if (aiCache.has(cacheKey)) return aiCache.get(cacheKey);
-  const records = buildPositronTransitionsForTime(time);
+  const records = isAll ? buildPositronTransitionsAll() : buildPositronTransitionsForTime(time);
   if (!records.length || !latest) return null;
   const model = createAiModel();
   records.forEach((_, index) => addAiRecord(model, records, index));
-  const next = nextSameTimeAfterLatest(latest, time);
+  const next = isAll ? {...nextDrawAfterLatest(latest), dayGap:1} : nextSameTimeAfterLatest(latest, time);
   const rankings = predictAiTransition(model, records, aiContextForNext(records, latest, next));
   const primaryDelta = rankings.map(ranking => ranking[0].digit);
   const predictedDigits = digitsOf(latest).map((digit, index) => mod10(digit + primaryDelta[index]));
   const backtestSize = Math.min(300, Math.max(150, Math.floor(records.length * 0.18)));
   const backtest = runAiBacktest(records, backtestSize);
-  const value = {time, timeDraws, latest, records, next, rankings, primaryDelta, predictedDigits, backtest};
+  const value = {time, isAll, timeDraws:modelDraws, latest, records, next, rankings, primaryDelta, predictedDigits, backtest};
   aiCache.set(cacheKey, value);
   return value;
 }
@@ -560,8 +581,8 @@ function aiSignalInfo(analysis) {
 function renderTimeChips(containerId, selectedTime, attributeName) {
   const container = $(containerId);
   if (!container) return;
-  const includeAllArchive = attributeName === 'archive-time';
-  const allButton = includeAllArchive
+  const includeAll = attributeName === 'archive-time' || attributeName === 'ai-time';
+  const allButton = includeAll
     ? `<button class="time-chip all-times ${selectedTime === 'all' ? 'active' : ''}" type="button" data-${attributeName}="all"><strong>ВСЕ</strong><small>${draws.length.toLocaleString('ru-RU')}</small></button>`
     : '';
   const timeButtons = DRAW_TIMES.map(time => {
@@ -575,9 +596,10 @@ function renderAiInto(ids, time) {
   const contextNode = $(ids.context);
   if (!contextNode) return;
   const analysis = buildAiAnalysisForTime(time);
-  if (ids.title && $(ids.title)) $(ids.title).textContent = `ИИ Позитрон · ${time}`;
+  const scopeLabel = time === 'all' ? 'ВСЕ ВРЕМЕНА' : time;
+  if (ids.title && $(ids.title)) $(ids.title).textContent = `ИИ Позитрон · ${scopeLabel}`;
   if (!analysis) {
-    contextNode.textContent = `Недостаточно переходов в архиве ${time}.`;
+    contextNode.textContent = `Недостаточно переходов в архиве ${scopeLabel}.`;
     $(ids.main).innerHTML = '';
     $(ids.columns).innerHTML = '';
     $(ids.backtest).innerHTML = '';
@@ -587,10 +609,10 @@ function renderAiInto(ids, time) {
   const badge = $(ids.badge);
   badge.textContent = signal.label;
   badge.className = `ai-signal ${signal.className}`;
-  contextNode.innerHTML = `<div><span>Последний факт ${time}</span><strong>№${analysis.latest.id} · ${drawCode(analysis.latest)}</strong><small>${analysis.latest.date}</small></div><div><span>Следующая цель</span><strong>${analysis.next.date} · ${time}</strong><small>${analysis.records.length.toLocaleString('ru-RU')} переходов в обучении</small></div>`;
+  contextNode.innerHTML = `<div><span>Последний факт ${scopeLabel}</span><strong>№${analysis.latest.id} · ${drawCode(analysis.latest)}</strong><small>${analysis.latest.date}</small></div><div><span>Следующая цель</span><strong>${analysis.next.date} · ${analysis.next.time}</strong><small>${analysis.records.length.toLocaleString('ru-RU')} переходов в обучении</small></div>`;
   const mirrorDelta = mirrorDigits(analysis.primaryDelta);
   $(ids.main).innerHTML = `
-    <div class="ai-main-block"><span>Основной переход ${time}</span><strong>+${codeOfDigits(analysis.primaryDelta)}</strong><small>зеркальный +${codeOfDigits(mirrorDelta)}</small></div>
+    <div class="ai-main-block"><span>Основной переход ${scopeLabel}</span><strong>+${codeOfDigits(analysis.primaryDelta)}</strong><small>зеркальный +${codeOfDigits(mirrorDelta)}</small></div>
     <div class="ai-main-arrow">→</div>
     <div class="ai-main-block result"><span>Расчётная комбинация</span><strong>${codeOfDigits(analysis.predictedDigits)}</strong><small>${drawCode(analysis.latest)} + ${codeOfDigits(analysis.primaryDelta)} по модулю 10</small></div>`;
   $(ids.columns).innerHTML = analysis.rankings.map((ranking, position) => {
@@ -605,7 +627,7 @@ function renderAiInto(ids, time) {
   if (!test) {
     $(ids.backtest).textContent = 'Для честного теста этого временного архива пока недостаточно истории.';
   } else {
-    $(ids.backtest).innerHTML = `<div class="ai-backtest-title"><span>Проверка модели ${time}</span><strong>${test.tested} переходов</strong></div>
+    $(ids.backtest).innerHTML = `<div class="ai-backtest-title"><span>Проверка модели ${scopeLabel}</span><strong>${test.tested} переходов</strong></div>
       <div class="ai-metrics">
         <div><span>Хотя бы 1 точное поле</span><b>${pct(test.atLeastOneTop1,test.tested)}</b></div>
         <div><span>Хотя бы 2 точных поля</span><b>${pct(test.atLeastTwoTop1,test.tested)}</b></div>
@@ -627,9 +649,12 @@ function renderAiPanel() {
 
 function renderAiTimeView() {
   renderTimeChips('aiTimeChips', aiSelectedTime, 'ai-time');
-  const count = drawsForTime(aiSelectedTime).length;
+  const isAll = aiSelectedTime === 'all';
+  const count = isAll ? draws.length : drawsForTime(aiSelectedTime).length;
   const summary = $('aiTimeSummary');
-  if (summary) summary.textContent = `${aiSelectedTime} · ${count.toLocaleString('ru-RU')} тиражей · ${Math.max(0,count-1).toLocaleString('ru-RU')} переходов между днями`;
+  if (summary) summary.textContent = isAll
+    ? `ВСЕ ВРЕМЕНА · ${count.toLocaleString('ru-RU')} тиражей · ${Math.max(0,count-1).toLocaleString('ru-RU')} соседних переходов`
+    : `${aiSelectedTime} · ${count.toLocaleString('ru-RU')} тиражей · ${Math.max(0,count-1).toLocaleString('ru-RU')} переходов между днями`;
   renderAiInto({
     title:'aiTimePanelTitle', badge:'aiTimeSignalBadge', context:'aiTimeContext', main:'aiTimeMainPrediction',
     columns:'aiTimeColumnPredictions', backtest:'aiTimeBacktest'
@@ -1697,7 +1722,7 @@ function selectArchiveTime(time) {
 }
 
 function selectAiTime(time) {
-  if (!DRAW_TIMES.includes(time)) return;
+  if (time !== 'all' && !DRAW_TIMES.includes(time)) return;
   aiSelectedTime = time;
   try { localStorage.setItem(AI_TIME_KEY, aiSelectedTime); } catch {}
   renderAiTimeView();
@@ -1733,7 +1758,7 @@ function bindEvents() {
   $('loadMoreBtn').addEventListener('click',()=>{ archiveShown+=Number($('archiveLimit').value)||50; renderArchive(); });
   $('aiRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiPanel(); showToast('ИИ-модель пересчитана по архиву времени'); });
   $('openAiViewBtn').addEventListener('click',()=>openView('ai'));
-  $('aiTimeRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiTimeView(); showToast(`Модель ${aiSelectedTime} пересчитана`); });
+  $('aiTimeRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiTimeView(); showToast(`Модель ${aiSelectedTime === 'all' ? 'ВСЕ ВРЕМЕНА' : aiSelectedTime} пересчитана`); });
   $('analysisRange').addEventListener('change',renderAnalysis);
   $('digitSearchLength').addEventListener('change',()=>updateDigitSearchControls({keepValues:true}));
   $('digitSearchForm').addEventListener('submit',e=>{e.preventDefault();renderDigitSearch();});
@@ -1861,7 +1886,7 @@ function start() {
     if (['normal','normal-diff','mirror','mirror-diff'].includes(savedMode)) archiveMode = savedMode;
     if (savedArchiveTime === 'all' || DRAW_TIMES.includes(savedArchiveTime)) archiveTime = savedArchiveTime;
     if (['selected','all'].includes(savedArchiveScope)) archiveSearchScope = savedArchiveScope;
-    if (DRAW_TIMES.includes(savedAiTime)) aiSelectedTime = savedAiTime;
+    if (savedAiTime === 'all' || DRAW_TIMES.includes(savedAiTime)) aiSelectedTime = savedAiTime;
   } catch {}
   const versionNode = document.querySelector('.version');
   if (versionNode) versionNode.textContent = `v${APP_VERSION}`;
