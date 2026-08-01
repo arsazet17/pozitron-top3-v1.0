@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.17';
+const APP_VERSION = '1.0.18';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -538,10 +538,15 @@ function aiSignalInfo(analysis) {
 function renderTimeChips(containerId, selectedTime, attributeName) {
   const container = $(containerId);
   if (!container) return;
-  container.innerHTML = DRAW_TIMES.map(time => {
+  const includeAllArchive = attributeName === 'archive-time';
+  const allButton = includeAllArchive
+    ? `<button class="time-chip all-times ${selectedTime === 'all' ? 'active' : ''}" type="button" data-${attributeName}="all"><strong>ВСЕ</strong><small>${draws.length.toLocaleString('ru-RU')}</small></button>`
+    : '';
+  const timeButtons = DRAW_TIMES.map(time => {
     const count = drawsForTime(time).length;
     return `<button class="time-chip ${time === selectedTime ? 'active' : ''}" type="button" data-${attributeName}="${time}"><strong>${time}</strong><small>${count.toLocaleString('ru-RU')}</small></button>`;
   }).join('');
+  container.innerHTML = allButton + timeButtons;
 }
 
 function renderAiInto(ids, time) {
@@ -695,14 +700,19 @@ function archiveEquationHtml(olderDigits, deltaDigits, currentDigits) {
 function renderArchive(reset = false) {
   if (reset) archiveShown = Number($('archiveLimit').value) || 50;
   renderTimeChips('archiveTimeChips', archiveTime, 'archive-time');
-  const selectedDraws = drawsForTime(archiveTime);
-  $('archiveTimeSummary').textContent = `${archiveTime} · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · ${Math.max(0, selectedDraws.length - 1).toLocaleString('ru-RU')} переходов между днями`;
+  const allArchiveSelected = archiveTime === 'all';
+  const selectedDraws = allArchiveSelected
+    ? [...draws].sort((a,b) => b.id - a.id)
+    : drawsForTime(archiveTime);
+  $('archiveTimeSummary').textContent = allArchiveSelected
+    ? `ВСЕ ВРЕМЕНА · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · разницы считаются внутри каждого времени`
+    : `${archiveTime} · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · ${Math.max(0, selectedDraws.length - 1).toLocaleString('ru-RU')} переходов между днями`;
   if ($('archiveSearchScope')) $('archiveSearchScope').value = archiveSearchScope;
 
   const query = parseArchiveSearch($('archiveSearch').value);
   const olderById = buildSameTimeOlderMap();
   const mirrorMode = archiveMode.startsWith('mirror');
-  const searchAllTimes = Boolean(query) && archiveSearchScope === 'all';
+  const searchAllTimes = allArchiveSelected || (Boolean(query) && archiveSearchScope === 'all');
   const source = searchAllTimes ? draws : selectedDraws;
 
   const searchable = draw => {
@@ -721,7 +731,7 @@ function renderArchive(reset = false) {
   const filtered = query ? source.filter(searchable) : source;
   const visible = filtered.slice(0, archiveShown);
   const meta = archiveModeMeta();
-  const scopeLabel = searchAllTimes ? 'все 10 времён' : archiveTime;
+  const scopeLabel = allArchiveSelected ? 'весь архив' : (searchAllTimes ? 'все 10 времён' : archiveTime);
   $('archiveInfo').textContent = `${filtered.length.toLocaleString('ru-RU')} тиражей · ${scopeLabel} · ${meta.title}`;
   $('archiveModeHelp').textContent = meta.help;
   qsa('.archive-mode-btn').forEach(button => button.classList.toggle('active', button.dataset.archiveMode === archiveMode));
@@ -1388,7 +1398,7 @@ function bindQuickSummary() {
 }
 
 function selectArchiveTime(time) {
-  if (!DRAW_TIMES.includes(time)) return;
+  if (time !== 'all' && !DRAW_TIMES.includes(time)) return;
   archiveTime = time;
   try { localStorage.setItem(ARCHIVE_TIME_KEY, archiveTime); } catch {}
   renderArchive(true);
@@ -1506,7 +1516,7 @@ function start() {
     const savedArchiveScope = localStorage.getItem(ARCHIVE_SCOPE_KEY);
     const savedAiTime = localStorage.getItem(AI_TIME_KEY);
     if (['normal','normal-diff','mirror','mirror-diff'].includes(savedMode)) archiveMode = savedMode;
-    if (DRAW_TIMES.includes(savedArchiveTime)) archiveTime = savedArchiveTime;
+    if (savedArchiveTime === 'all' || DRAW_TIMES.includes(savedArchiveTime)) archiveTime = savedArchiveTime;
     if (['selected','all'].includes(savedArchiveScope)) archiveSearchScope = savedArchiveScope;
     if (DRAW_TIMES.includes(savedAiTime)) aiSelectedTime = savedAiTime;
   } catch {}

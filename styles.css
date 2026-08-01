@@ -402,3 +402,10 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
   .ai-candidate>span { font-size:15px; }
   .ai-candidate>small { font-size:8px; }
 }
+
+
+/* v1.0.18 — одиннадцатый архив «ВСЕ» */
+.time-chip.all-times { min-width:88px; border-color:rgba(255,211,63,.34); }
+.time-chip.all-times strong { letter-spacing:.06em; }
+.time-chip.all-times.active { color:#2b1b00; background:linear-gradient(145deg,#fff0a1,var(--gold)); border-color:rgba(255,211,63,.9); box-shadow:0 8px 22px rgba(255,211,63,.14); }
+.time-chip.all-times.active small { color:#5b4200; }
