@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.18';
+const APP_VERSION = '1.0.19';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -687,6 +687,13 @@ function buildSameTimeOlderMap() {
   return map;
 }
 
+function buildAllArchiveOlderMap() {
+  const map = new Map();
+  const ordered = [...draws].sort((a,b) => b.id - a.id);
+  ordered.forEach((draw,index) => map.set(draw.id, ordered[index + 1] || null));
+  return map;
+}
+
 function archiveEquationHtml(olderDigits, deltaDigits, currentDigits) {
   return `<div class="positron-equation">
     <div><span>Предыдущая</span>${renderArchiveDigits(olderDigits)}</div>
@@ -705,12 +712,14 @@ function renderArchive(reset = false) {
     ? [...draws].sort((a,b) => b.id - a.id)
     : drawsForTime(archiveTime);
   $('archiveTimeSummary').textContent = allArchiveSelected
-    ? `ВСЕ ВРЕМЕНА · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · разницы считаются внутри каждого времени`
+    ? `ВСЕ ВРЕМЕНА · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · разницы считаются между соседними комбинациями`
     : `${archiveTime} · ${selectedDraws.length.toLocaleString('ru-RU')} тиражей · ${Math.max(0, selectedDraws.length - 1).toLocaleString('ru-RU')} переходов между днями`;
   if ($('archiveSearchScope')) $('archiveSearchScope').value = archiveSearchScope;
 
   const query = parseArchiveSearch($('archiveSearch').value);
-  const olderById = buildSameTimeOlderMap();
+  const sameTimeOlderById = buildSameTimeOlderMap();
+  const allArchiveOlderById = buildAllArchiveOlderMap();
+  const olderById = allArchiveSelected ? allArchiveOlderById : sameTimeOlderById;
   const mirrorMode = archiveMode.startsWith('mirror');
   const searchAllTimes = allArchiveSelected || (Boolean(query) && archiveSearchScope === 'all');
   const source = searchAllTimes ? draws : selectedDraws;
@@ -747,7 +756,11 @@ function renderArchive(reset = false) {
     const displayedDelta = delta ? (isMirror ? mirrorDigits(delta) : delta) : null;
     const gap = older ? dateGapDays(older, draw) : null;
     const gapBadge = gap && gap > 1 ? `<span class="gap-badge">Интервал ${gap} дня</span>` : '';
-    const sourceText = older ? `переход от №${older.id} · ${older.date} · ${draw.time}` : 'первый тираж этой временной цепочки';
+    const sourceText = older
+      ? (allArchiveSelected
+        ? `переход от соседнего тиража №${older.id} · ${older.date} · ${older.time}`
+        : `переход от №${older.id} · ${older.date} · ${draw.time}`)
+      : (allArchiveSelected ? 'первый тираж общего архива' : 'первый тираж этой временной цепочки');
 
     let expanded = '';
     if (showDifference && older && displayedDelta) {
