@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.24';
+const APP_VERSION = '1.0.25';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -11,6 +11,7 @@ const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
 const ARCHIVE_TIME_KEY = 'yulia-top3-archive-time-v1';
 const ARCHIVE_SCOPE_KEY = 'yulia-top3-archive-scope-v1';
 const AI_TIME_KEY = 'yulia-top3-ai-time-v2';
+const ANALYSIS_RANGE_KEY = 'yulia-top3-analysis-range-v1';
 const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v2-auto';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
@@ -972,8 +973,20 @@ function drawCode(d) {
 }
 
 function getAnalysisList() {
-  const value = $('analysisRange').value;
-  return value === 'all' ? draws : draws.slice(0, Number(value));
+  const select = $('analysisRange');
+  const value = select ? select.value : '100';
+  if (value === 'all') return draws;
+  const limit = Number(value);
+  return Number.isFinite(limit) && limit > 0 ? draws.slice(0, Math.min(limit, draws.length)) : draws.slice(0, 100);
+}
+
+function updateAnalysisRangeSummary(list = getAnalysisList()) {
+  const node = $('analysisRangeSummary');
+  if (!node) return;
+  const value = $('analysisRange')?.value || '100';
+  node.textContent = value === 'all'
+    ? `Анализ: вся база (${list.length.toLocaleString('ru-RU')} тиражей)`
+    : `Анализ: последние ${list.length.toLocaleString('ru-RU')} тиражей`;
 }
 
 function digitScopeOptions(length) {
@@ -1161,6 +1174,7 @@ function initializeAnalysisTools() {
 
 function renderAnalysis() {
   const list = getAnalysisList();
+  updateAnalysisRangeSummary(list);
   $('frequencyCharts').innerHTML = renderFrequencyGroup(list,'a','1-й столбец') + renderFrequencyGroup(list,'b','2-й столбец') + renderFrequencyGroup(list,'c','3-й столбец');
   const latest = draws[0];
   if (latest) {
@@ -1701,7 +1715,10 @@ function bindQuickSummary() {
   panel.style.cursor = 'pointer';
 
   const openHundred = () => {
-    if ($('analysisRange')) $('analysisRange').value = '100';
+    if ($('analysisRange')) {
+      $('analysisRange').value = '100';
+      try { localStorage.setItem(ANALYSIS_RANGE_KEY, '100'); } catch {}
+    }
     openView('analysis');
   };
 
@@ -1759,7 +1776,10 @@ function bindEvents() {
   $('aiRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiPanel(); showToast('ИИ-модель пересчитана по архиву времени'); });
   $('openAiViewBtn').addEventListener('click',()=>openView('ai'));
   $('aiTimeRecalcBtn').addEventListener('click',()=>{ aiCache.clear(); renderAiTimeView(); showToast(`Модель ${aiSelectedTime === 'all' ? 'ВСЕ ВРЕМЕНА' : aiSelectedTime} пересчитана`); });
-  $('analysisRange').addEventListener('change',renderAnalysis);
+  $('analysisRange').addEventListener('change',()=>{
+    try { localStorage.setItem(ANALYSIS_RANGE_KEY, $('analysisRange').value); } catch {}
+    renderAnalysis();
+  });
   $('digitSearchLength').addEventListener('change',()=>updateDigitSearchControls({keepValues:true}));
   $('digitSearchForm').addEventListener('submit',e=>{e.preventDefault();renderDigitSearch();});
   $('chainLength').addEventListener('change',renderChainSearch);
@@ -1883,10 +1903,14 @@ function start() {
     const savedArchiveTime = localStorage.getItem(ARCHIVE_TIME_KEY);
     const savedArchiveScope = localStorage.getItem(ARCHIVE_SCOPE_KEY);
     const savedAiTime = localStorage.getItem(AI_TIME_KEY);
+    const savedAnalysisRange = localStorage.getItem(ANALYSIS_RANGE_KEY);
     if (['normal','normal-diff','mirror','mirror-diff'].includes(savedMode)) archiveMode = savedMode;
     if (savedArchiveTime === 'all' || DRAW_TIMES.includes(savedArchiveTime)) archiveTime = savedArchiveTime;
     if (['selected','all'].includes(savedArchiveScope)) archiveSearchScope = savedArchiveScope;
     if (savedAiTime === 'all' || DRAW_TIMES.includes(savedAiTime)) aiSelectedTime = savedAiTime;
+    if (['3','5','10','20','50','100','500','2000','all'].includes(savedAnalysisRange) && $('analysisRange')) {
+      $('analysisRange').value = savedAnalysisRange;
+    }
   } catch {}
   const versionNode = document.querySelector('.version');
   if (versionNode) versionNode.textContent = `v${APP_VERSION}`;
