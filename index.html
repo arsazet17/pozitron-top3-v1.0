@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.15 — архивы по времени и ИИ Позитрон</title>
+  <title>Yulia TOP-3 v1.0.20 — архивы по времени и ИИ Позитрон</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=1.0.18">
+  <link rel="stylesheet" href="styles.css?v=1.0.20">
   <script>
-    window.TOP3_BUILD = '1.0.15';
+    window.TOP3_BUILD = '1.0.20';
 </script>
 </head>
 <body>
@@ -252,6 +252,14 @@
         <div id="chainSearchSummary" class="search-summary"></div>
         <div id="chainSearchResults" class="chain-results"></div>
       </section>
+      <section class="panel forecast-launch-panel" aria-labelledby="forecastLaunchTitle">
+        <div class="section-head">
+          <div><span class="eyebrow">АРХИВ ПРОГНОЗОВ</span><h3 id="forecastLaunchTitle">Проверка прогнозов и цепочек</h3></div>
+        </div>
+        <p class="panel-note">Отдельный экран сохраняет прогноз, предполагаемую разницу и три варианта комбинации. После выхода тиражей он автоматически подсвечивает полные совпадения, пары, отдельные цифры и совпадения по месту.</p>
+        <button id="openForecastCheckBtn" class="primary-btn wide" type="button">Открыть проверку прогнозов</button>
+      </section>
+
       <section class="panel">
         <div class="section-head"><div><span class="eyebrow">ПОЗИЦИИ 1–2–3</span><h3>Частота цифр 0–9</h3></div></div>
         <div id="frequencyCharts" class="frequency-wrap"></div>
@@ -264,6 +272,52 @@
         <div class="section-head"><div><span class="eyebrow">КОМБИНАЦИИ</span><h3>Частые точные тройки</h3></div></div>
         <div id="comboTable" class="combo-list"></div>
       </section>
+    </section>
+
+    <section id="view-forecast-check" class="view" aria-labelledby="forecastCheckTitle">
+      <div class="page-title forecast-page-title">
+        <button id="forecastBackBtn" class="secondary-btn compact" type="button">← Назад в анализ</button>
+        <span class="eyebrow">ОТДЕЛЬНАЯ ПАНЕЛЬ</span>
+        <h2 id="forecastCheckTitle">Проверка прогнозов</h2>
+        <p>Прогноз сохраняется отдельно от базы тиражей. Новые факты только проверяют его и ничего не удаляют.</p>
+      </div>
+
+      <section class="panel forecast-entry-panel">
+        <div class="section-head"><div><span class="eyebrow">НОВЫЙ ПРОГНОЗ</span><h3>Записать до выхода факта</h3></div></div>
+        <form id="forecastForm" class="forecast-form">
+          <div class="forecast-grid">
+            <label>На тираж №<input id="forecastTargetId" type="number" inputmode="numeric" required></label>
+            <label>Название метода<input id="forecastMethod" type="text" placeholder="Например: разности Юлии"></label>
+            <label>Предполагаемая разница<input id="forecastDelta" type="text" inputmode="numeric" maxlength="3" placeholder="364" required></label>
+            <label>Основная комбинация<input id="forecastVariant1" type="text" inputmode="numeric" maxlength="3" placeholder="705" required></label>
+            <label>Вариант 2<input id="forecastVariant2" type="text" inputmode="numeric" maxlength="3" placeholder="необязательно"></label>
+            <label>Вариант 3<input id="forecastVariant3" type="text" inputmode="numeric" maxlength="3" placeholder="необязательно"></label>
+          </div>
+          <div id="forecastBasePreview" class="forecast-base-preview">Предыдущая комбинация будет определена автоматически по номеру тиража.</div>
+          <button class="primary-btn wide" type="submit">Сохранить прогноз</button>
+        </form>
+      </section>
+
+      <section class="panel forecast-filter-panel">
+        <div class="section-head"><div><span class="eyebrow">АРХИВ ПРОВЕРОК</span><h3>Сохранённые прогнозы</h3></div></div>
+        <div class="forecast-filter-row">
+          <label>Показывать
+            <select id="forecastStatusFilter">
+              <option value="all">Все прогнозы</option>
+              <option value="waiting">Ожидают факт</option>
+              <option value="checked">Уже проверены</option>
+            </select>
+          </label>
+          <label>Цепочка после прогноза
+            <select id="forecastChainLength">
+              <option value="5">5 тиражей</option>
+              <option value="10" selected>10 тиражей</option>
+              <option value="20">20 тиражей</option>
+            </select>
+          </label>
+        </div>
+      </section>
+      <div id="forecastArchiveList" class="forecast-archive-list"></div>
     </section>
 
     <section id="view-data" class="view" aria-labelledby="dataTitle">
@@ -306,7 +360,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="top3-data.js?v=1.0.15"></script>
-  <script src="app.js?v=1.0.18"></script>
+  <script src="top3-data.js?v=1.0.20"></script>
+  <script src="app.js?v=1.0.20"></script>
 </body>
 </html>

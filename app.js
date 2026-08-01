@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.19';
+const APP_VERSION = '1.0.20';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -11,6 +11,7 @@ const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
 const ARCHIVE_TIME_KEY = 'yulia-top3-archive-time-v1';
 const ARCHIVE_SCOPE_KEY = 'yulia-top3-archive-scope-v1';
 const AI_TIME_KEY = 'yulia-top3-ai-time-v1';
+const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v1';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
 
@@ -28,6 +29,7 @@ let archiveTime = '13:40';
 let archiveSearchScope = 'selected';
 let aiSelectedTime = '13:40';
 let aiCache = new Map();
+let forecastArchive = loadForecastArchive();
 
 const VERIFIED_CORRECTIONS = [
   // Эти строки уже есть во встроенном архиве и используются только для
@@ -1024,6 +1026,150 @@ function renderAnalysis() {
   if ($('digitSearchA').value !== '') renderDigitSearch();
 }
 
+
+function normalizeForecastCode(value) {
+  const compact = String(value || '').replace(/\D/g, '').slice(0,3);
+  return compact.length === 3 ? compact : '';
+}
+
+function loadForecastArchive() {
+  try {
+    const value = JSON.parse(localStorage.getItem(FORECAST_ARCHIVE_KEY) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch { return []; }
+}
+
+function saveForecastArchive() {
+  try { localStorage.setItem(FORECAST_ARCHIVE_KEY, JSON.stringify(forecastArchive)); } catch {}
+}
+
+function drawById(id) {
+  return draws.find(draw => Number(draw.id) === Number(id)) || null;
+}
+
+function previousOverallDraw(targetId) {
+  return [...draws].filter(draw => Number(draw.id) < Number(targetId)).sort((a,b)=>b.id-a.id)[0] || null;
+}
+
+function addCodes(baseCode, deltaCode) {
+  if (!/^\d{3}$/.test(baseCode) || !/^\d{3}$/.test(deltaCode)) return '';
+  return baseCode.split('').map((digit,index)=>mod10(Number(digit)+Number(deltaCode[index]))).join('');
+}
+
+function forecastHitInfo(predictedCode, actualCode) {
+  const predicted = String(predictedCode || '').split('');
+  const actual = String(actualCode || '').split('');
+  const used = new Set();
+  const exact = predicted.map((digit,index)=>digit === actual[index]);
+  const moved = predicted.map((digit,index)=>{
+    if (exact[index]) { used.add(index); return false; }
+    const found = actual.findIndex((value,pos)=>value===digit && !used.has(pos) && !exact[pos]);
+    if (found >= 0) { used.add(found); return true; }
+    return false;
+  });
+  const exactCount = exact.filter(Boolean).length;
+  const presentCount = exactCount + moved.filter(Boolean).length;
+  const pairs = [];
+  for (let i=0;i<2;i++) {
+    const pair = predicted.slice(i,i+2).join('');
+    if (actualCode.includes(pair)) pairs.push(pair);
+  }
+  return { exact, moved, exactCount, presentCount, pairs, full: predictedCode === actualCode };
+}
+
+function highlightedActualDigits(actualCode, variants) {
+  const primary = variants[0] || '';
+  const info = forecastHitInfo(primary, actualCode);
+  return `<div class="forecast-actual-digits">${actualCode.split('').map((digit,index)=>{
+    let cls='';
+    if (info.exact[index]) cls='exact-place';
+    else if (primary.includes(digit)) cls='digit-present';
+    return `<span class="${cls}">${digit}</span>`;
+  }).join('')}</div>`;
+}
+
+function variantResultHtml(variant, actualCode) {
+  if (!variant) return '';
+  const info = forecastHitInfo(variant, actualCode);
+  const label = info.full ? 'полное совпадение' : info.exactCount >= 2 ? `${info.exactCount} поля по месту` : info.presentCount >= 2 ? `${info.presentCount} цифры` : info.presentCount === 1 ? '1 цифра' : 'нет совпадений';
+  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><strong>${variant}</strong><span>${label}</span>${info.pairs.length ? `<em>пара ${info.pairs.join(', ')}</em>` : ''}</div>`;
+}
+
+function updateForecastBasePreview() {
+  const targetId = Number($('forecastTargetId')?.value || 0);
+  const deltaCode = normalizeForecastCode($('forecastDelta')?.value);
+  const previous = previousOverallDraw(targetId);
+  if (!previous) {
+    $('forecastBasePreview').textContent = 'Предыдущий тираж пока не найден в базе.';
+    return;
+  }
+  const baseCode = drawCode(previous);
+  const result = addCodes(baseCode, deltaCode);
+  $('forecastBasePreview').innerHTML = `Предыдущий факт: <strong>№${previous.id} · ${baseCode}</strong>${result ? ` + Δ${deltaCode} = <strong>${result}</strong>` : ''}`;
+  if (result && !$('forecastVariant1').dataset.manual) $('forecastVariant1').value = result;
+}
+
+function renderForecastArchive() {
+  if (!$('forecastArchiveList')) return;
+  const filter = $('forecastStatusFilter')?.value || 'all';
+  const chainLength = Number($('forecastChainLength')?.value || 10);
+  const orderedFacts = [...draws].sort((a,b)=>a.id-b.id);
+  const visible = [...forecastArchive].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).filter(item=>{
+    const checked = Boolean(drawById(item.targetId));
+    return filter==='all' || (filter==='checked' ? checked : !checked);
+  });
+
+  $('forecastArchiveList').innerHTML = visible.map(item=>{
+    const target = drawById(item.targetId);
+    const previous = previousOverallDraw(item.targetId);
+    const variants = item.variants.filter(Boolean);
+    const targetIndex = orderedFacts.findIndex(draw=>draw.id===item.targetId);
+    const chain = targetIndex >= 0 ? orderedFacts.slice(targetIndex, targetIndex + chainLength) : [];
+    const targetCode = target ? drawCode(target) : '';
+    const targetDelta = target && previous ? codeOfDigits(positronDifference(previous,target)) : '';
+    const primaryInfo = target ? forecastHitInfo(variants[0], targetCode) : null;
+    const status = !target ? 'Ожидает факт' : primaryInfo.full ? 'Точное попадание' : primaryInfo.presentCount ? `Совпало цифр: ${primaryInfo.presentCount}` : 'Не совпало';
+
+    const chainHtml = chain.length ? chain.map((draw,index)=>{
+      const actualCode = drawCode(draw);
+      const results = variants.map(v=>variantResultHtml(v,actualCode)).join('');
+      const anyFull = variants.some(v=>v===actualCode);
+      const anyPair = variants.some(v=>forecastHitInfo(v,actualCode).pairs.length);
+      return `<div class="forecast-chain-row ${anyFull ? 'full-hit' : anyPair ? 'pair-hit' : ''}">
+        <div class="forecast-chain-step"><strong>${index===0 ? 'Факт' : `Через ${index}`}</strong><span>№${draw.id} · ${draw.date} · ${draw.time}</span></div>
+        ${highlightedActualDigits(actualCode, variants)}
+        <div class="forecast-chain-results">${results}</div>
+      </div>`;
+    }).join('') : '<div class="forecast-waiting">Фактический тираж ещё не появился. Прогноз сохранён и будет проверен автоматически.</div>';
+
+    return `<article class="forecast-card">
+      <div class="forecast-card-head">
+        <div><span class="eyebrow">ПРОГНОЗ НА №${item.targetId}</span><h3>${item.method || 'Без названия метода'}</h3><p>${new Date(item.createdAt).toLocaleString('ru-RU')}</p></div>
+        <span class="forecast-status ${!target ? 'waiting' : primaryInfo.full ? 'success' : 'checked'}">${status}</span>
+      </div>
+      <div class="forecast-core">
+        <div><span>Предыдущая</span><strong>${item.baseCode || (previous ? drawCode(previous) : '—')}</strong></div>
+        <div><span>Прогноз Δ</span><strong>+${item.delta}</strong></div>
+        <div><span>Варианты</span><strong>${variants.join(' / ')}</strong></div>
+        <div><span>Факт</span><strong>${targetCode || 'ожидается'}</strong>${targetDelta ? `<small>Δ${targetDelta}</small>` : ''}</div>
+      </div>
+      <details class="forecast-chain" open>
+        <summary>Цепочка после прогноза и подсветка совпадений</summary>
+        <div class="forecast-legend"><span class="legend-exact">точное место</span><span class="legend-present">цифра вышла в другом месте</span><span class="legend-pair">пара</span></div>
+        ${chainHtml}
+      </details>
+      <button class="danger-btn forecast-delete-btn" data-forecast-delete="${item.id}" type="button">Удалить только этот прогноз</button>
+    </article>`;
+  }).join('') || '<div class="empty-result">Прогнозов пока нет. Запиши первый прогноз до выхода тиража.</div>';
+}
+
+function renderForecastCheck() {
+  if (!$('forecastTargetId')) return;
+  if (!$('forecastTargetId').value && draws[0]) $('forecastTargetId').value = draws[0].id + 1;
+  updateForecastBasePreview();
+  renderForecastArchive();
+}
+
 function renderData() {
   $('dataCount').textContent = draws.length.toLocaleString('ru-RU');
   $('dataFirst').textContent = draws.at(-1) ? `№ ${draws.at(-1).id}` : '—';
@@ -1039,6 +1185,7 @@ function renderAll() {
   renderArchive(true);
   renderAiTimeView();
   renderAnalysis();
+  renderForecastCheck();
   renderData();
 }
 
@@ -1383,6 +1530,7 @@ function openView(name) {
   if (name === 'archive') renderArchive(true);
   if (name === 'ai') renderAiTimeView();
   if (name === 'analysis') renderAnalysis();
+  if (name === 'forecast-check') renderForecastCheck();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1460,6 +1608,52 @@ function bindEvents() {
   $('digitSearchForm').addEventListener('submit',e=>{e.preventDefault();renderDigitSearch();});
   $('chainLength').addEventListener('change',renderChainSearch);
   $('chainSearchBtn').addEventListener('click',renderChainSearch);
+  $('openForecastCheckBtn').addEventListener('click',()=>openView('forecast-check'));
+  $('forecastBackBtn').addEventListener('click',()=>openView('analysis'));
+  $('forecastTargetId').addEventListener('input',updateForecastBasePreview);
+  $('forecastDelta').addEventListener('input',()=>{
+    $('forecastDelta').value = String($('forecastDelta').value || '').replace(/\D/g,'').slice(0,3);
+    updateForecastBasePreview();
+  });
+  $('forecastVariant1').addEventListener('input',()=>{
+    $('forecastVariant1').dataset.manual = $('forecastVariant1').value ? '1' : '';
+    $('forecastVariant1').value = String($('forecastVariant1').value || '').replace(/\D/g,'').slice(0,3);
+  });
+  ['forecastVariant2','forecastVariant3'].forEach(id=>$(id).addEventListener('input',()=>{$(id).value=String($(id).value||'').replace(/\D/g,'').slice(0,3);}));
+  $('forecastStatusFilter').addEventListener('change',renderForecastArchive);
+  $('forecastChainLength').addEventListener('change',renderForecastArchive);
+  $('forecastForm').addEventListener('submit',event=>{
+    event.preventDefault();
+    const targetId = Number($('forecastTargetId').value);
+    const delta = normalizeForecastCode($('forecastDelta').value);
+    const variants = ['forecastVariant1','forecastVariant2','forecastVariant3'].map(id=>normalizeForecastCode($(id).value)).filter(Boolean);
+    if (!targetId || !delta || !variants.length) return showToast('Укажи номер тиража, разницу и хотя бы одну комбинацию');
+    const previous = previousOverallDraw(targetId);
+    forecastArchive.push({
+      id:`forecast-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      targetId,
+      method:String($('forecastMethod').value || '').trim(),
+      delta,
+      variants,
+      baseDrawId:previous?.id || null,
+      baseCode:previous ? drawCode(previous) : '',
+      createdAt:new Date().toISOString()
+    });
+    saveForecastArchive();
+    event.target.reset();
+    $('forecastVariant1').dataset.manual='';
+    if (draws[0]) $('forecastTargetId').value = draws[0].id + 1;
+    renderForecastCheck();
+    showToast(`Прогноз на №${targetId} сохранён`);
+  });
+  $('forecastArchiveList').addEventListener('click',event=>{
+    const button=event.target.closest('[data-forecast-delete]');
+    if (!button) return;
+    forecastArchive=forecastArchive.filter(item=>item.id!==button.dataset.forecastDelete);
+    saveForecastArchive();
+    renderForecastArchive();
+    showToast('Прогноз удалён. База тиражей не изменена.');
+  });
 
   $('manualForm').addEventListener('submit',async(e)=>{
     e.preventDefault();

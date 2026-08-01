@@ -409,3 +409,32 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
 .time-chip.all-times strong { letter-spacing:.06em; }
 .time-chip.all-times.active { color:#2b1b00; background:linear-gradient(145deg,#fff0a1,var(--gold)); border-color:rgba(255,211,63,.9); box-shadow:0 8px 22px rgba(255,211,63,.14); }
 .time-chip.all-times.active small { color:#5b4200; }
+
+
+/* v1.0.20 — отдельная панель проверки прогнозов */
+.forecast-launch-panel{border-color:rgba(87,224,255,.42);background:linear-gradient(145deg,rgba(6,39,94,.96),rgba(5,27,67,.96))}
+.secondary-btn.compact{width:auto;padding:.65rem 1rem;margin-bottom:1rem}
+.forecast-form,.forecast-filter-row{display:grid;gap:14px}
+.forecast-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.forecast-grid label,.forecast-filter-row label{display:grid;gap:7px;color:#dce9ff;font-weight:700}
+.forecast-grid input,.forecast-filter-row select{width:100%;border:1px solid rgba(91,209,255,.28);background:#071b45;color:#fff;border-radius:14px;padding:13px 14px;font:inherit}
+.forecast-base-preview{padding:14px;border-radius:14px;background:rgba(4,20,53,.7);border:1px dashed rgba(255,218,91,.35);color:#d9e7ff}
+.forecast-filter-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+.forecast-archive-list{display:grid;gap:18px}
+.forecast-card{background:linear-gradient(155deg,#08245d,#061a45);border:1px solid rgba(79,204,255,.28);border-radius:24px;padding:18px;box-shadow:0 18px 45px rgba(0,0,0,.2)}
+.forecast-card-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.forecast-card-head h3{margin:.25rem 0}.forecast-card-head p{margin:0;color:#aebfe4;font-size:.85rem}
+.forecast-status{padding:8px 10px;border-radius:999px;font-weight:800;font-size:.78rem;background:#263a69;color:#dce7ff;white-space:nowrap}
+.forecast-status.waiting{background:#554917;color:#ffe68a}.forecast-status.success{background:#174f3a;color:#a9ffd6}.forecast-status.checked{background:#30335c;color:#d8ddff}
+.forecast-core{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:16px 0}
+.forecast-core>div{background:rgba(3,17,48,.78);border-radius:14px;padding:10px;text-align:center}.forecast-core span{display:block;color:#9fb3dc;font-size:.72rem}.forecast-core strong{display:block;font-size:1.1rem;margin-top:4px}.forecast-core small{display:block;color:#ffd95d;margin-top:3px}
+.forecast-chain summary{cursor:pointer;font-weight:800;padding:12px 0;color:#eaf2ff}
+.forecast-legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}.forecast-legend span{padding:5px 8px;border-radius:9px;font-size:.72rem;font-weight:800}.legend-exact{background:#1d7653}.legend-present{background:#8a6515}.legend-pair{background:#254f91}
+.forecast-chain-row{display:grid;grid-template-columns:minmax(105px,.8fr) auto minmax(170px,1.4fr);gap:10px;align-items:center;padding:12px 0;border-top:1px solid rgba(147,181,235,.14)}
+.forecast-chain-row.full-hit{background:rgba(25,126,83,.12)}.forecast-chain-row.pair-hit{background:rgba(38,85,151,.1)}
+.forecast-chain-step strong,.forecast-chain-step span{display:block}.forecast-chain-step span{color:#9fb3dc;font-size:.72rem;margin-top:3px}
+.forecast-actual-digits{display:flex;gap:5px}.forecast-actual-digits span{display:grid;place-items:center;width:34px;height:38px;border-radius:10px;background:#174da5;color:#fff;font-weight:900;font-size:1.1rem}.forecast-actual-digits .exact-place{background:#1e8d62;box-shadow:0 0 0 2px #94ffd4 inset}.forecast-actual-digits .digit-present{background:#bd8617;color:#fff2c0}
+.forecast-chain-results{display:grid;gap:4px}.forecast-variant-result{display:flex;gap:8px;align-items:center;font-size:.75rem;color:#afbee0}.forecast-variant-result strong{color:#fff}.forecast-variant-result em{font-style:normal;color:#8fc7ff}.forecast-variant-result.full span{color:#8affc3;font-weight:800}
+.forecast-waiting{padding:18px;border-radius:14px;background:rgba(255,215,77,.08);color:#ffe99e}
+.forecast-delete-btn{margin-top:14px;width:100%}
+@media(max-width:720px){.forecast-grid,.forecast-filter-row{grid-template-columns:1fr}.forecast-core{grid-template-columns:repeat(2,minmax(0,1fr))}.forecast-chain-row{grid-template-columns:1fr auto}.forecast-chain-results{grid-column:1/-1}}
