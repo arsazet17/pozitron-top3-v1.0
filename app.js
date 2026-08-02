@@ -1301,8 +1301,8 @@ function highlightedActualDigits(actualCode, variants) {
 function variantResultHtml(variant, actualCode) {
   if (!variant) return '';
   const info = forecastHitInfo(variant, actualCode);
-  const label = info.full ? 'полное совпадение' : info.exactCount >= 2 ? `${info.exactCount} поля по месту` : info.presentCount >= 2 ? `${info.presentCount} цифры` : info.presentCount === 1 ? '1 цифра' : 'нет совпадений';
-  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><strong>${variant}</strong><span>${label}</span>${info.pairs.length ? `<em>пара ${info.pairs.join(', ')}</em>` : ''}</div>`;
+  const digits=variant.split('').map((d,i)=>`<span class="digit-tile ${info.exact[i]?'exact-place':''}">${d}</span>`).join('');
+  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><div class="forecast-digit-row">${digits}</div>${info.pairs.length ? `<em>пара ${info.pairs.join(', ')}</em>` : ''}</div>`;
 }
 
 function updateForecastBasePreview() {
