@@ -502,3 +502,43 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
   color:#fff;
   box-shadow:0 0 0 2px rgba(134,239,172,.55) inset;
 }
+
+/* Исправление мобильной ширины карточек вариантов: цифры всегда внутри своей карточки */
+.archive-forecast-variants{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;
+}
+.archive-forecast-variant{
+  min-width:0;
+  overflow:hidden;
+  padding:10px 5px;
+  box-sizing:border-box;
+}
+.archive-forecast-variant .forecast-variant-result{
+  width:100%;
+  min-width:0;
+  justify-content:center;
+}
+.archive-forecast-variant .forecast-digit-row{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  width:100%;
+  max-width:78px;
+  gap:3px;
+  margin:8px auto 0;
+  box-sizing:border-box;
+}
+.archive-forecast-variant .forecast-digit-row .digit-tile{
+  width:100%;
+  min-width:0;
+  height:30px;
+  padding:0;
+  box-sizing:border-box;
+  font-size:.96rem;
+}
+@media(max-width:380px){
+  .archive-forecast-variants{gap:5px}
+  .archive-forecast-variant{padding:9px 4px}
+  .archive-forecast-variant .forecast-digit-row{max-width:72px;gap:2px}
+  .archive-forecast-variant .forecast-digit-row .digit-tile{height:28px;font-size:.9rem}
+}
