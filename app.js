@@ -790,28 +790,48 @@ function compactForecastChain(item, maxLength=5) {
   const ordered=[...draws].sort((a,b)=>Number(a.id)-Number(b.id));
   const start=ordered.findIndex(draw=>Number(draw.id)===Number(item.targetId));
   if (start<0) return '<p class="home-forecast-waiting">Прогнозный тираж ещё не вышел. Проверка появится автоматически после факта.</p>';
-  const variants=(item.variants||[]).filter(Boolean);
+  const variants=(item.variants||[]).filter(code=>/^\d{3}$/.test(String(code)));
   const predictedDeltas=[item.delta,...(item.deltaVariants||[])].filter(Boolean);
   const realFacts=ordered.slice(start,Math.min(ordered.length,start+maxLength));
+
   return realFacts.map((draw,index)=>{
     const actual=drawCode(draw);
     const previous=index===0 ? previousOverallDraw(draw.id) : realFacts[index-1];
     const actualDelta=previous ? codeOfDigits(positronDifference(previous,draw)) : '';
     const deltaHit=actualDelta && predictedDeltas.includes(actualDelta);
-    const infos=variants.map(v=>forecastHitInfo(v,actual));
-    const full=infos.some(info=>info.full);
-    const exact=Math.max(0,...infos.map(info=>info.exactCount));
-    const present=Math.max(0,...infos.map(info=>info.presentCount));
-    const pairs=[...new Set(infos.flatMap(info=>info.pairs))];
-    let result='нет совпадений';
-    if(full) result='полное совпадение';
-    else if(exact>=2) result=`${exact} поля по месту`;
-    else if(pairs.length) result=`пара ${pairs.join(', ')}`;
-    else if(present) result=`совпало цифр: ${present}`;
-    return `<div class="home-forecast-chain-row ${full?'full-hit':pairs.length?'pair-hit':''}">
-      <div><strong>${index===0?'Факт':`Через ${index}`}</strong><small>№${draw.id} · ${draw.date} · ${draw.time}</small></div>
-      ${highlightedActualDigits(actual,variants)}
-      <div class="home-forecast-chain-result"><span>${result}</span>${actualDelta?`<small class="${deltaHit?'delta-hit':''}">Δ +${actualDelta}${deltaHit?' — совпала':''}</small>`:''}</div>
+
+    const ranked=variants.map((variant,variantIndex)=>({
+      variant,
+      variantIndex,
+      info:forecastHitInfo(variant,actual)
+    })).sort((a,b)=>
+      Number(b.info.full)-Number(a.info.full) ||
+      b.info.presentCount-a.info.presentCount ||
+      b.info.exactCount-a.info.exactCount ||
+      b.info.pairs.length-a.info.pairs.length ||
+      a.variantIndex-b.variantIndex
+    );
+
+    const best=ranked[0] || {variant:'',variantIndex:0,info:{full:false,pairs:[]}};
+    const full=Boolean(best.info.full);
+    const pairHit=Boolean(best.info.pairs?.length);
+    const factDigits=`<div class="forecast-actual-digits home-forecast-fact-digits">${actual.split('').map(digit=>`<span>${digit}</span>`).join('')}</div>`;
+
+    return `<div class="home-forecast-chain-row ${full?'full-hit':pairHit?'pair-hit':''}">
+      <div class="home-forecast-chain-meta">
+        <div><strong>${index===0?'Проверенный тираж':`Через ${index}`}</strong><small>№${draw.id} · ${draw.date} · ${draw.time}</small></div>
+        ${actualDelta?`<small class="home-forecast-chain-delta ${deltaHit?'delta-hit':''}">Δ +${actualDelta}${deltaHit?' — совпала':''}</small>`:''}
+      </div>
+      <div class="home-forecast-comparison">
+        <div class="home-forecast-compare-side home-forecast-predicted">
+          <span>Вариант ${best.variantIndex+1}</span>
+          ${variantResultHtml(best.variant,actual)}
+        </div>
+        <div class="home-forecast-compare-side home-forecast-actual">
+          <span>Факт</span>
+          ${factDigits}
+        </div>
+      </div>
     </div>`;
   }).join('');
 }

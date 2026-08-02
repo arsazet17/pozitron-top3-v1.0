@@ -542,3 +542,110 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
   .archive-forecast-variant .forecast-digit-row{max-width:72px;gap:2px}
   .archive-forecast-variant .forecast-digit-row .digit-tile{height:28px;font-size:.9rem}
 }
+
+
+/* Понятная проверка старого прогноза на главном экране:
+   показываем лучший сохранённый вариант рядом с фактом. */
+.home-forecast-chain-row{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:10px;
+  padding:12px;
+}
+.home-forecast-chain-meta{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:10px;
+}
+.home-forecast-chain-meta>div strong,
+.home-forecast-chain-meta>div small{
+  display:block;
+}
+.home-forecast-chain-meta>div small{
+  margin-top:3px;
+  color:#9fb2d8;
+  font-size:.76rem;
+}
+.home-forecast-chain-delta{
+  flex:0 0 auto;
+  color:var(--muted);
+  font-size:.76rem;
+  text-align:right;
+}
+.home-forecast-chain-delta.delta-hit{
+  color:#20c997;
+  font-weight:800;
+}
+.home-forecast-comparison{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:9px;
+}
+.home-forecast-compare-side{
+  min-width:0;
+  padding:10px 7px;
+  border-radius:13px;
+  background:rgba(8,29,72,.9);
+  border:1px solid rgba(126,164,226,.2);
+  text-align:center;
+  overflow:hidden;
+}
+.home-forecast-compare-side>span{
+  display:block;
+  margin-bottom:7px;
+  color:#b8c8e8;
+  font-size:.74rem;
+  font-weight:850;
+}
+.home-forecast-predicted{
+  border-color:rgba(255,211,73,.4);
+}
+.home-forecast-actual{
+  border-color:rgba(75,190,255,.42);
+}
+.home-forecast-predicted .forecast-variant-result{
+  display:block;
+  width:100%;
+  min-width:0;
+}
+.home-forecast-predicted .forecast-digit-row{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  width:100%;
+  max-width:108px;
+  gap:4px;
+  margin:0 auto;
+}
+.home-forecast-predicted .forecast-digit-row .digit-tile{
+  width:100%;
+  min-width:0;
+  height:34px;
+  padding:0;
+  box-sizing:border-box;
+  font-size:1rem;
+}
+.home-forecast-predicted .forecast-digit-row .digit-tile.exact-place{
+  background:#16a34a;
+  color:#fff;
+  box-shadow:0 0 0 2px rgba(134,239,172,.58) inset;
+}
+.home-forecast-fact-digits{
+  justify-content:center;
+  width:100%;
+}
+.home-forecast-fact-digits span{
+  width:31px;
+  height:34px;
+  border-radius:8px;
+  font-size:1rem;
+}
+@media(max-width:380px){
+  .home-forecast-comparison{gap:6px}
+  .home-forecast-compare-side{padding:9px 5px}
+  .home-forecast-predicted .forecast-digit-row{max-width:96px;gap:3px}
+  .home-forecast-predicted .forecast-digit-row .digit-tile,
+  .home-forecast-fact-digits span{height:31px;font-size:.94rem}
+  .home-forecast-fact-digits{gap:3px}
+  .home-forecast-fact-digits span{width:28px}
+}
