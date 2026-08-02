@@ -747,6 +747,49 @@ function forecastVariantTile(code, index) {
   return `<div class="home-forecast-variant variant-${index+1}"><span>${labels[index]}</span><strong>${code}</strong></div>`;
 }
 
+
+function savedForecastForDraw(drawId) {
+  return [...forecastArchive]
+    .filter(item => item.automatic && Number(item.targetId) === Number(drawId))
+    .sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
+}
+
+function archiveSavedForecastHtml(draw) {
+  const item = savedForecastForDraw(draw.id);
+  if (!item) {
+    return `<section class="archive-saved-forecast empty">
+      <span class="eyebrow">ПРОГНОЗ НА ЭТОТ ТИРАЖ</span>
+      <p>Сохранённого прогноза на №${draw.id} нет. Приложение показывает только прогнозы, которые действительно были сохранены до выхода факта.</p>
+    </section>`;
+  }
+  const variants = (item.variants || []).filter(code => /^\d{3}$/.test(String(code))).slice(0,3);
+  const actualCode = drawCode(draw);
+  const previous = previousOverallDraw(draw.id);
+  const actualDelta = previous ? codeOfDigits(positronDifference(previous, draw)) : '';
+  const predictedDeltas = [item.delta, ...(item.deltaVariants || [])].filter(Boolean);
+  const deltaHit = actualDelta && predictedDeltas.includes(actualDelta);
+  const variantRows = variants.map((variant,index) => {
+    const info = forecastHitInfo(variant, actualCode);
+    let result = 'нет совпадений';
+    if (info.full) result = 'полное совпадение';
+    else if (info.exactCount >= 2) result = `${info.exactCount} поля по месту`;
+    else if (info.pairs.length) result = `пара ${info.pairs.join(', ')}`;
+    else if (info.presentCount) result = `совпало цифр: ${info.presentCount}`;
+    return `<div class="archive-forecast-variant variant-${index+1} ${info.full ? 'full-hit' : ''}">
+      <span>Вариант ${index+1}</span><strong>${variant}</strong><small>${result}</small>
+    </div>`;
+  }).join('');
+  return `<section class="archive-saved-forecast">
+    <span class="eyebrow">ПРОГНОЗ, СОХРАНЁННЫЙ ДО ТИРАЖА №${draw.id}</span>
+    <div class="archive-forecast-summary">
+      <div><span>Предполагаемая разница</span><strong>+${item.delta || '—'}</strong></div>
+      <div><span>Фактическая разница</span><strong class="${deltaHit ? 'delta-hit' : ''}">${actualDelta ? `+${actualDelta}` : '—'}</strong><small>${deltaHit ? 'совпала' : 'не совпала'}</small></div>
+      <div><span>Факт</span><strong>${actualCode}</strong></div>
+    </div>
+    <div class="archive-forecast-variants">${variantRows}</div>
+  </section>`;
+}
+
 function compactForecastChain(item, maxLength=5) {
   const ordered=[...draws].sort((a,b)=>Number(a.id)-Number(b.id));
   const start=ordered.findIndex(draw=>Number(draw.id)===Number(item.targetId));
@@ -937,7 +980,7 @@ function renderArchive(reset = false) {
           <span class="details-chevron">⌄</span>
         </div>
       </summary>
-      <div class="archive-expanded">${expanded}</div>
+      <div class="archive-expanded">${expanded}${archiveSavedForecastHtml(draw)}</div>
     </details>`;
   }).join('') || '<div class="empty-result">По выбранным условиям ничего не найдено.</div>';
   $('loadMoreBtn').hidden = visible.length >= filtered.length;

@@ -461,3 +461,23 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
 .home-forecast-chain-result{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .home-forecast-chain-result small{font-size:.76rem;color:var(--muted)}
 .home-forecast-chain-result small.delta-hit{color:#20c997;font-weight:800}
+
+
+/* v1.0.27: сохранённый прогноз внутри карточки прошедшего тиража */
+.archive-saved-forecast{margin-top:16px;padding:16px;border-radius:18px;border:1px solid rgba(93,210,255,.3);background:rgba(4,24,63,.78)}
+.archive-saved-forecast.empty{border-color:rgba(164,180,214,.2)}
+.archive-saved-forecast.empty p{margin:8px 0 0;color:var(--muted);line-height:1.5}
+.archive-forecast-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}
+.archive-forecast-summary>div{padding:12px;border-radius:14px;background:rgba(2,15,43,.72);text-align:center}
+.archive-forecast-summary span,.archive-forecast-summary small{display:block;color:var(--muted);font-size:.76rem}
+.archive-forecast-summary strong{display:block;margin-top:5px;font-size:1.3rem;color:#eef5ff}
+.archive-forecast-summary strong.delta-hit{color:#3de0a0}
+.archive-forecast-variants{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:10px}
+.archive-forecast-variant{padding:12px 8px;border-radius:14px;background:#071b45;text-align:center;border:1px solid rgba(255,255,255,.12)}
+.archive-forecast-variant.variant-1{border-color:rgba(75,190,255,.45)}
+.archive-forecast-variant.variant-2{border-color:rgba(255,211,73,.45)}
+.archive-forecast-variant.variant-3{border-color:rgba(111,231,188,.45)}
+.archive-forecast-variant.full-hit{outline:2px solid rgba(61,224,160,.65)}
+.archive-forecast-variant span,.archive-forecast-variant small{display:block;color:var(--muted);font-size:.74rem}
+.archive-forecast-variant strong{display:block;margin:5px 0;font-size:1.4rem;letter-spacing:.06em}
+@media(max-width:560px){.archive-forecast-summary{grid-template-columns:1fr}.archive-forecast-variants{grid-template-columns:repeat(3,minmax(0,1fr))}.archive-forecast-variant strong{font-size:1.2rem}}
