@@ -770,13 +770,9 @@ function archiveSavedForecastHtml(draw) {
   const deltaHit = actualDelta && predictedDeltas.includes(actualDelta);
   const variantRows = variants.map((variant,index) => {
     const info = forecastHitInfo(variant, actualCode);
-    let result = 'нет совпадений';
-    if (info.full) result = 'полное совпадение';
-    else if (info.exactCount >= 2) result = `${info.exactCount} поля по месту`;
-    else if (info.pairs.length) result = `пара ${info.pairs.join(', ')}`;
-    else if (info.presentCount) result = `совпало цифр: ${info.presentCount}`;
     return `<div class="archive-forecast-variant variant-${index+1} ${info.full ? 'full-hit' : ''}">
-      <span>Вариант ${index+1}</span><strong>${variant}</strong><small>${result}</small>
+      <span>Вариант ${index+1}</span>
+      ${variantResultHtml(variant, actualCode)}
     </div>`;
   }).join('');
   return `<section class="archive-saved-forecast">
@@ -1301,8 +1297,11 @@ function highlightedActualDigits(actualCode, variants) {
 function variantResultHtml(variant, actualCode) {
   if (!variant) return '';
   const info = forecastHitInfo(variant, actualCode);
-  const digits=variant.split('').map((d,i)=>`<span class="digit-tile ${info.exact[i]?'exact-place':''}">${d}</span>`).join('');
-  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><div class="forecast-digit-row">${digits}</div>${info.pairs.length ? `<em>пара ${info.pairs.join(', ')}</em>` : ''}</div>`;
+  const digits = variant.split('').map((digit,index) => {
+    const matched = info.exact[index] || info.moved[index];
+    return `<span class="digit-tile ${matched ? 'exact-place' : ''}">${digit}</span>`;
+  }).join('');
+  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><div class="forecast-digit-row">${digits}</div></div>`;
 }
 
 function updateForecastBasePreview() {

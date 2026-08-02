@@ -483,3 +483,22 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
 @media(max-width:560px){.archive-forecast-summary{grid-template-columns:1fr}.archive-forecast-variants{grid-template-columns:repeat(3,minmax(0,1fr))}.archive-forecast-variant strong{font-size:1.2rem}}
 
 .forecast-digit-row{display:flex;gap:6px;margin-top:6px}.forecast-digit-row .digit-tile{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:#22324a;color:#fff;font-weight:700}.forecast-digit-row .digit-tile.exact-place{background:#16a34a;color:#fff}
+
+
+/* Совпавшие цифры в сохранённом прогнозе: белая цифра внутри зелёной плитки */
+.archive-forecast-variant .forecast-digit-row{
+  justify-content:center;
+  gap:4px;
+  margin-top:8px;
+}
+.archive-forecast-variant .forecast-digit-row .digit-tile{
+  width:27px;
+  height:30px;
+  border-radius:8px;
+  font-size:1rem;
+}
+.archive-forecast-variant .forecast-digit-row .digit-tile.exact-place{
+  background:#16a34a;
+  color:#fff;
+  box-shadow:0 0 0 2px rgba(134,239,172,.55) inset;
+}
