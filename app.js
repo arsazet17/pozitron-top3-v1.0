@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.25';
+const APP_VERSION = '1.0.26';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -11,7 +11,7 @@ const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
 const ARCHIVE_TIME_KEY = 'yulia-top3-archive-time-v1';
 const ARCHIVE_SCOPE_KEY = 'yulia-top3-archive-scope-v1';
 const AI_TIME_KEY = 'yulia-top3-ai-time-v2';
-const ANALYSIS_RANGE_KEY = 'yulia-top3-analysis-range-v1';
+const ANALYSIS_RANGE_KEY = 'yulia-top3-analysis-range-v2';
 const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v2-auto';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
 const LIVE_DATA_URL = './top3-live.json';
@@ -974,7 +974,7 @@ function drawCode(d) {
 
 function getAnalysisList() {
   const select = $('analysisRange');
-  const value = select ? select.value : '100';
+  const value = select ? select.value : '20';
   if (value === 'all') return draws;
   const limit = Number(value);
   return Number.isFinite(limit) && limit > 0 ? draws.slice(0, Math.min(limit, draws.length)) : draws.slice(0, 100);
@@ -983,7 +983,7 @@ function getAnalysisList() {
 function updateAnalysisRangeSummary(list = getAnalysisList()) {
   const node = $('analysisRangeSummary');
   if (!node) return;
-  const value = $('analysisRange')?.value || '100';
+  const value = $('analysisRange')?.value || '20';
   node.textContent = value === 'all'
     ? `Анализ: вся база (${list.length.toLocaleString('ru-RU')} тиражей)`
     : `Анализ: последние ${list.length.toLocaleString('ru-RU')} тиражей`;
