@@ -1,7 +1,7 @@
 {
-  "schema": 2,
+  "schema": 3,
   "source": "Lucky Numbers напрямую",
-  "updatedAt": "2026-08-03T01:40:40.098Z",
+  "updatedAt": "2026-08-03T02:00:56.253Z",
   "latest": 267393,
   "regularTimes": [
     "02:40",
@@ -14,6 +14,30 @@
     "16:25",
     "21:25",
     "22:40"
+  ],
+  "forecasts": [
+    {
+      "id": "server-auto-267394",
+      "automatic": true,
+      "server": true,
+      "createdAt": "2026-08-03T02:00:56.232Z",
+      "targetId": 267394,
+      "targetDate": "03.08.26",
+      "targetTime": "06:40",
+      "baseId": 267384,
+      "baseCode": "962",
+      "delta": "105",
+      "deltaVariants": [
+        "105",
+        "543",
+        "921"
+      ],
+      "variants": [
+        "067",
+        "405",
+        "883"
+      ]
+    }
   ],
   "draws": [
     {
