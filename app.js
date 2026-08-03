@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.26';
+const APP_VERSION = '1.0.27';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -770,9 +770,13 @@ function archiveSavedForecastHtml(draw) {
   const deltaHit = actualDelta && predictedDeltas.includes(actualDelta);
   const variantRows = variants.map((variant,index) => {
     const info = forecastHitInfo(variant, actualCode);
+    let result = 'нет совпадений';
+    if (info.full) result = 'полное совпадение';
+    else if (info.exactCount >= 2) result = `${info.exactCount} поля по месту`;
+    else if (info.pairs.length) result = `пара ${info.pairs.join(', ')}`;
+    else if (info.presentCount) result = `совпало цифр: ${info.presentCount}`;
     return `<div class="archive-forecast-variant variant-${index+1} ${info.full ? 'full-hit' : ''}">
-      <span>Вариант ${index+1}</span>
-      ${variantResultHtml(variant, actualCode)}
+      <span>Вариант ${index+1}</span><strong>${variant}</strong><small>${result}</small>
     </div>`;
   }).join('');
   return `<section class="archive-saved-forecast">
@@ -790,48 +794,28 @@ function compactForecastChain(item, maxLength=5) {
   const ordered=[...draws].sort((a,b)=>Number(a.id)-Number(b.id));
   const start=ordered.findIndex(draw=>Number(draw.id)===Number(item.targetId));
   if (start<0) return '<p class="home-forecast-waiting">Прогнозный тираж ещё не вышел. Проверка появится автоматически после факта.</p>';
-  const variants=(item.variants||[]).filter(code=>/^\d{3}$/.test(String(code)));
+  const variants=(item.variants||[]).filter(Boolean);
   const predictedDeltas=[item.delta,...(item.deltaVariants||[])].filter(Boolean);
   const realFacts=ordered.slice(start,Math.min(ordered.length,start+maxLength));
-
   return realFacts.map((draw,index)=>{
     const actual=drawCode(draw);
     const previous=index===0 ? previousOverallDraw(draw.id) : realFacts[index-1];
     const actualDelta=previous ? codeOfDigits(positronDifference(previous,draw)) : '';
     const deltaHit=actualDelta && predictedDeltas.includes(actualDelta);
-
-    const ranked=variants.map((variant,variantIndex)=>({
-      variant,
-      variantIndex,
-      info:forecastHitInfo(variant,actual)
-    })).sort((a,b)=>
-      Number(b.info.full)-Number(a.info.full) ||
-      b.info.presentCount-a.info.presentCount ||
-      b.info.exactCount-a.info.exactCount ||
-      b.info.pairs.length-a.info.pairs.length ||
-      a.variantIndex-b.variantIndex
-    );
-
-    const best=ranked[0] || {variant:'',variantIndex:0,info:{full:false,pairs:[]}};
-    const full=Boolean(best.info.full);
-    const pairHit=Boolean(best.info.pairs?.length);
-    const factDigits=`<div class="forecast-actual-digits home-forecast-fact-digits">${actual.split('').map(digit=>`<span>${digit}</span>`).join('')}</div>`;
-
-    return `<div class="home-forecast-chain-row ${full?'full-hit':pairHit?'pair-hit':''}">
-      <div class="home-forecast-chain-meta">
-        <div><strong>${index===0?'Проверенный тираж':`Через ${index}`}</strong><small>№${draw.id} · ${draw.date} · ${draw.time}</small></div>
-        ${actualDelta?`<small class="home-forecast-chain-delta ${deltaHit?'delta-hit':''}">Δ +${actualDelta}${deltaHit?' — совпала':''}</small>`:''}
-      </div>
-      <div class="home-forecast-comparison">
-        <div class="home-forecast-compare-side home-forecast-predicted">
-          <span>Вариант ${best.variantIndex+1}</span>
-          ${variantResultHtml(best.variant,actual)}
-        </div>
-        <div class="home-forecast-compare-side home-forecast-actual">
-          <span>Факт</span>
-          ${factDigits}
-        </div>
-      </div>
+    const infos=variants.map(v=>forecastHitInfo(v,actual));
+    const full=infos.some(info=>info.full);
+    const exact=Math.max(0,...infos.map(info=>info.exactCount));
+    const present=Math.max(0,...infos.map(info=>info.presentCount));
+    const pairs=[...new Set(infos.flatMap(info=>info.pairs))];
+    let result='нет совпадений';
+    if(full) result='полное совпадение';
+    else if(exact>=2) result=`${exact} поля по месту`;
+    else if(pairs.length) result=`пара ${pairs.join(', ')}`;
+    else if(present) result=`совпало цифр: ${present}`;
+    return `<div class="home-forecast-chain-row ${full?'full-hit':pairs.length?'pair-hit':''}">
+      <div><strong>${index===0?'Факт':`Через ${index}`}</strong><small>№${draw.id} · ${draw.date} · ${draw.time}</small></div>
+      ${highlightedActualDigits(actual,variants)}
+      <div class="home-forecast-chain-result"><span>${result}</span>${actualDelta?`<small class="${deltaHit?'delta-hit':''}">Δ +${actualDelta}${deltaHit?' — совпала':''}</small>`:''}</div>
     </div>`;
   }).join('');
 }
@@ -1269,6 +1253,55 @@ function saveForecastArchive() {
   try { localStorage.setItem(FORECAST_ARCHIVE_KEY, JSON.stringify(forecastArchive)); } catch {}
 }
 
+function normalizeServerForecast(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const targetId = Number(raw.targetId);
+  const baseId = Number(raw.baseId);
+  const variants = Array.isArray(raw.variants)
+    ? raw.variants.map(normalizeForecastCode).filter(Boolean).slice(0, 3)
+    : [];
+  const delta = normalizeForecastCode(raw.delta);
+  const deltaVariants = Array.isArray(raw.deltaVariants)
+    ? raw.deltaVariants.map(normalizeForecastCode).filter(Boolean).slice(0, 3)
+    : [];
+  if (!Number.isInteger(targetId) || targetId <= 0 || variants.length !== 3 || !delta) return null;
+  return {
+    id: String(raw.id || `server-auto-${targetId}`),
+    automatic: true,
+    server: true,
+    createdAt: String(raw.createdAt || new Date(0).toISOString()),
+    targetId,
+    targetDate: String(raw.targetDate || ''),
+    targetTime: String(raw.targetTime || ''),
+    baseId: Number.isInteger(baseId) && baseId > 0 ? baseId : null,
+    baseCode: normalizeForecastCode(raw.baseCode),
+    delta,
+    deltaVariants: deltaVariants.length ? deltaVariants : [delta],
+    variants
+  };
+}
+
+function mergeServerForecasts(items) {
+  if (!Array.isArray(items) || !items.length) return 0;
+  let added = 0;
+  for (const raw of items) {
+    const item = normalizeServerForecast(raw);
+    if (!item) continue;
+    const exists = forecastArchive.some(entry =>
+      entry?.automatic && Number(entry.targetId) === item.targetId
+    );
+    if (exists) continue;
+    forecastArchive.push(item);
+    added += 1;
+  }
+  if (!added) return 0;
+  forecastArchive = forecastArchive
+    .sort((a,b) => Number(a.targetId || 0) - Number(b.targetId || 0))
+    .slice(-240);
+  saveForecastArchive();
+  return added;
+}
+
 function drawById(id) {
   return draws.find(draw => Number(draw.id) === Number(id)) || null;
 }
@@ -1317,11 +1350,8 @@ function highlightedActualDigits(actualCode, variants) {
 function variantResultHtml(variant, actualCode) {
   if (!variant) return '';
   const info = forecastHitInfo(variant, actualCode);
-  const digits = variant.split('').map((digit,index) => {
-    const matched = info.exact[index] || info.moved[index];
-    return `<span class="digit-tile ${matched ? 'exact-place' : ''}">${digit}</span>`;
-  }).join('');
-  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><div class="forecast-digit-row">${digits}</div></div>`;
+  const label = info.full ? 'полное совпадение' : info.exactCount >= 2 ? `${info.exactCount} поля по месту` : info.presentCount >= 2 ? `${info.presentCount} цифры` : info.presentCount === 1 ? '1 цифра' : 'нет совпадений';
+  return `<div class="forecast-variant-result ${info.full ? 'full' : ''}"><strong>${variant}</strong><span>${label}</span>${info.pairs.length ? `<em>пара ${info.pairs.join(', ')}</em>` : ''}</div>`;
 }
 
 function updateForecastBasePreview() {
@@ -1657,6 +1687,7 @@ async function fetchLuckyDraws() {
     if (!Array.isArray(items) || !items.length) throw new Error('общий файл GitHub не содержит тиражей');
     return {
       items,
+      forecasts: Array.isArray(payload?.forecasts) ? payload.forecasts : [],
       source: payload?.source || 'GitHub TOP-3 Live',
       generatedAt: payload?.updatedAt || null
     };
@@ -1721,15 +1752,25 @@ async function checkOnlineDraws({ manual=false, silent=false }={}) {
     const result=await fetchLuckyDraws();
     const items=validateOnlineBatch(result.items);
     const sourceLatest=Math.max(...items.map(d=>d.id));
+    // Серверный прогноз импортируется раньше факта. Поэтому даже при закрытом приложении
+    // он уже лежит в top3-live.json и потом честно показывается в архиве.
+    const importedForecasts=mergeServerForecasts(result.forecasts);
     const {added}=await addNewDrawsOnly(items);
     if (added) await refreshFromDB();
+    else if (importedForecasts) {
+      renderHome();
+      renderArchive(true);
+      renderForecastCheck();
+    }
     const success=new Date().toISOString();
     const localLatest=draws[0]?.id || 0;
     const message=added
-      ? `Добавлено новых тиражей: ${added}. Последний найденный — №${sourceLatest}.`
-      : sourceLatest < localLatest
-        ? `Локальная база уже новее общего файла: №${localLatest}. Жду следующего запуска cron-job.`
-        : `Новых тиражей нет. Последний найденный — №${sourceLatest}.`;
+      ? `Добавлено новых тиражей: ${added}. Последний найденный — №${sourceLatest}.${importedForecasts ? ` Серверных прогнозов сохранено: ${importedForecasts}.` : ''}`
+      : importedForecasts
+        ? `Новых тиражей нет. Серверный прогноз на следующий тираж сохранён.`
+        : sourceLatest < localLatest
+          ? `Локальная база уже новее общего файла: №${localLatest}. Жду следующего запуска cron-job.`
+          : `Новых тиражей нет. Последний найденный — №${sourceLatest}.`;
     saveSyncStatus({state:'success',lastSuccess:success,source:result.source,lastAdded:added,sourceLatest,message});
     if (!silent || added) showToast(message);
   } catch (error) {

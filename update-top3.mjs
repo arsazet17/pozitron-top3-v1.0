@@ -514,6 +514,298 @@ async function readSeed() {
     .sort((a, b) => b.id - a.id);
 }
 
+
+function serverMod10(value) {
+  return ((Number(value) % 10) + 10) % 10;
+}
+
+function serverDigitsOf(draw) {
+  return draw ? [Number(draw.a), Number(draw.b), Number(draw.c)] : [0, 0, 0];
+}
+
+function serverCodeOfDigits(values) {
+  return values.map(serverMod10).join('');
+}
+
+function serverDifference(older, newer) {
+  if (!older || !newer) return null;
+  const from = serverDigitsOf(older);
+  const to = serverDigitsOf(newer);
+  return to.map((value, index) => serverMod10(value - from[index]));
+}
+
+function serverParseDrawDate(dateText) {
+  const match = String(dateText || '').match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+  if (!match) return null;
+  return new Date(Date.UTC(2000 + Number(match[3]), Number(match[2]) - 1, Number(match[1])));
+}
+
+function serverFormatDrawDate(date) {
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const yy = String(date.getUTCFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
+}
+
+function serverNextDrawAfterLatest(latest) {
+  const times = [...REGULAR_DRAW_TIMES];
+  if (!latest) return { date: '', time: '' };
+  const [currentHour, currentMinute] = String(latest.time).split(':').map(Number);
+  const currentMinutes = currentHour * 60 + currentMinute;
+  let nextTime = times.find(time => {
+    const [hour, minute] = time.split(':').map(Number);
+    return hour * 60 + minute > currentMinutes;
+  });
+  const date = serverParseDrawDate(latest.date) || new Date();
+  if (!nextTime) {
+    nextTime = times[0];
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return { date: serverFormatDrawDate(date), time: nextTime, weekday: date.getUTCDay(), dayGap: 1 };
+}
+
+function serverDrawsForTime(time, sourceDraws) {
+  return sourceDraws
+    .filter(draw => draw.time === time)
+    .sort((a, b) => b.id - a.id);
+}
+
+function serverDateGapDays(older, newer) {
+  const olderDate = serverParseDrawDate(older?.date);
+  const newerDate = serverParseDrawDate(newer?.date);
+  if (!olderDate || !newerDate) return 1;
+  return Math.max(1, Math.round((newerDate - olderDate) / 86400000));
+}
+
+function serverNextSameTime(latest, time) {
+  if (!latest) return { date: '', time, weekday: 0, dayGap: 1 };
+  const date = serverParseDrawDate(latest.date) || new Date();
+  date.setUTCDate(date.getUTCDate() + 1);
+  return { date: serverFormatDrawDate(date), time, weekday: date.getUTCDay(), dayGap: 1 };
+}
+
+function serverBuildTransitions(time, sourceDraws) {
+  const ordered = serverDrawsForTime(time, sourceDraws).reverse();
+  const records = [];
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1];
+    const current = ordered[index];
+    const date = serverParseDrawDate(current.date);
+    records.push({
+      previous,
+      current,
+      delta: serverDifference(previous, current),
+      weekday: date ? date.getUTCDay() : 0,
+      dayGap: serverDateGapDays(previous, current)
+    });
+  }
+  return records;
+}
+
+function serverEmptyCounts() {
+  return Array(10).fill(0);
+}
+
+function serverIncrementArray(array, digit) {
+  array[serverMod10(digit)] += 1;
+}
+
+function serverIncrementMap(map, key, digit) {
+  const normalizedKey = String(key);
+  if (!map.has(normalizedKey)) map.set(normalizedKey, serverEmptyCounts());
+  serverIncrementArray(map.get(normalizedKey), digit);
+}
+
+function serverCreateAiModel() {
+  return Array.from({ length: 3 }, () => ({
+    global: serverEmptyCounts(),
+    weekday: new Map(),
+    source: new Map(),
+    gap: new Map(),
+    previousDelta: new Map(),
+    previousFullDelta: new Map(),
+    history2: new Map(),
+    history3: new Map(),
+    history5: new Map()
+  }));
+}
+
+function serverHistoryKey(records, index, position, length) {
+  if (index < length) return null;
+  return records.slice(index - length, index).map(record => record.delta[position]).join('|');
+}
+
+function serverAddAiRecord(model, records, index) {
+  const record = records[index];
+  if (!record) return;
+  const previousRecord = records[index - 1] || null;
+  for (let position = 0; position < 3; position += 1) {
+    const target = record.delta[position];
+    const sourceDigit = serverDigitsOf(record.previous)[position];
+    const bucket = model[position];
+    serverIncrementArray(bucket.global, target);
+    serverIncrementMap(bucket.weekday, record.weekday, target);
+    serverIncrementMap(bucket.source, sourceDigit, target);
+    serverIncrementMap(bucket.gap, Math.min(7, record.dayGap || 1), target);
+    if (previousRecord) {
+      serverIncrementMap(bucket.previousDelta, previousRecord.delta[position], target);
+      serverIncrementMap(bucket.previousFullDelta, serverCodeOfDigits(previousRecord.delta), target);
+    }
+    const key2 = serverHistoryKey(records, index, position, 2);
+    const key3 = serverHistoryKey(records, index, position, 3);
+    const key5 = serverHistoryKey(records, index, position, 5);
+    if (key2 !== null) serverIncrementMap(bucket.history2, key2, target);
+    if (key3 !== null) serverIncrementMap(bucket.history3, key3, target);
+    if (key5 !== null) serverIncrementMap(bucket.history5, key5, target);
+  }
+}
+
+function serverCountsSupport(counts) {
+  return counts ? counts.reduce((sum, value) => sum + value, 0) : 0;
+}
+
+function serverSmoothedProbability(counts, digit, alpha = 1) {
+  const support = serverCountsSupport(counts);
+  return (Number(counts?.[digit] || 0) + alpha) / (support + alpha * 10);
+}
+
+function serverAddEvidence(scores, counts, baseWeight, supportScale, alpha = 1) {
+  const support = serverCountsSupport(counts);
+  if (!support) return;
+  const adaptiveWeight = baseWeight * Math.min(1, Math.log1p(support) / Math.log1p(supportScale));
+  for (let digit = 0; digit < 10; digit += 1) {
+    scores[digit] += adaptiveWeight * Math.log(serverSmoothedProbability(counts, digit, alpha));
+  }
+}
+
+function serverRecentCounts(records, position, count) {
+  const result = serverEmptyCounts();
+  records.slice(-count).forEach(record => serverIncrementArray(result, record.delta[position]));
+  return result;
+}
+
+function serverNormalizeScores(scores) {
+  const maximum = Math.max(...scores);
+  const exponentials = scores.map(score => Math.exp(score - maximum));
+  const sum = exponentials.reduce((total, value) => total + value, 0) || 1;
+  return exponentials.map(value => value / sum);
+}
+
+function serverContextHistoryKey(records, position, length) {
+  if (records.length < length) return null;
+  return records.slice(-length).map(record => record.delta[position]).join('|');
+}
+
+function serverPredictPosition(model, records, position, context) {
+  const bucket = model[position];
+  const scores = Array(10).fill(0);
+  serverAddEvidence(scores, bucket.global, 1.20, 1600, 1.25);
+  serverAddEvidence(scores, bucket.weekday.get(String(context.weekday)), 0.28, 260, 1.6);
+  serverAddEvidence(scores, bucket.source.get(String(context.sourceDigits[position])), 0.68, 180, 1.45);
+  serverAddEvidence(scores, bucket.gap.get(String(Math.min(7, context.dayGap || 1))), 0.20, 220, 1.8);
+  if (context.previousRecord) {
+    serverAddEvidence(scores, bucket.previousDelta.get(String(context.previousRecord.delta[position])), 0.72, 180, 1.5);
+    serverAddEvidence(scores, bucket.previousFullDelta.get(serverCodeOfDigits(context.previousRecord.delta)), 0.24, 25, 2.4);
+  }
+  const key2 = serverContextHistoryKey(records, position, 2);
+  const key3 = serverContextHistoryKey(records, position, 3);
+  const key5 = serverContextHistoryKey(records, position, 5);
+  if (key2 !== null) serverAddEvidence(scores, bucket.history2.get(key2), 0.50, 70, 2.1);
+  if (key3 !== null) serverAddEvidence(scores, bucket.history3.get(key3), 0.30, 35, 2.5);
+  if (key5 !== null) serverAddEvidence(scores, bucket.history5.get(key5), 0.18, 16, 3.0);
+  serverAddEvidence(scores, serverRecentCounts(records, position, 10), 0.36, 10, 2.2);
+  serverAddEvidence(scores, serverRecentCounts(records, position, 20), 0.34, 20, 2.0);
+  serverAddEvidence(scores, serverRecentCounts(records, position, 50), 0.28, 50, 1.8);
+  serverAddEvidence(scores, serverRecentCounts(records, position, 200), 0.18, 200, 1.5);
+  const probabilities = serverNormalizeScores(scores);
+  return probabilities
+    .map((probability, digit) => ({ digit, probability }))
+    .sort((first, second) => second.probability - first.probability || first.digit - second.digit);
+}
+
+function normalizeStoredForecast(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const targetId = Number(raw.targetId);
+  const variants = Array.isArray(raw.variants)
+    ? raw.variants.map(value => String(value || '')).filter(value => /^\d{3}$/.test(value)).slice(0, 3)
+    : [];
+  const delta = String(raw.delta || '');
+  const deltaVariants = Array.isArray(raw.deltaVariants)
+    ? raw.deltaVariants.map(value => String(value || '')).filter(value => /^\d{3}$/.test(value)).slice(0, 3)
+    : [];
+  if (!Number.isInteger(targetId) || targetId <= 0 || variants.length !== 3 || !/^\d{3}$/.test(delta)) return null;
+  return {
+    id: String(raw.id || `server-auto-${targetId}`),
+    automatic: true,
+    server: true,
+    createdAt: String(raw.createdAt || new Date(0).toISOString()),
+    targetId,
+    targetDate: String(raw.targetDate || ''),
+    targetTime: String(raw.targetTime || ''),
+    baseId: Number(raw.baseId) || null,
+    baseCode: /^\d{3}$/.test(String(raw.baseCode || '')) ? String(raw.baseCode) : '',
+    delta,
+    deltaVariants: deltaVariants.length ? deltaVariants : [delta],
+    variants
+  };
+}
+
+function buildServerForecast(sourceDraws, createdAt = new Date().toISOString()) {
+  const history = uniqueDraws(sourceDraws);
+  const latestOverall = history[0] || null;
+  if (!latestOverall) return null;
+  const target = serverNextDrawAfterLatest(latestOverall);
+  const timeDraws = serverDrawsForTime(target.time, history);
+  const latestAtTime = timeDraws[0] || null;
+  const records = serverBuildTransitions(target.time, history);
+  if (!latestAtTime || records.length < 10) return null;
+
+  const model = serverCreateAiModel();
+  records.forEach((_, index) => serverAddAiRecord(model, records, index));
+  const next = serverNextSameTime(latestAtTime, target.time);
+  const context = {
+    weekday: next.weekday,
+    dayGap: next.dayGap || 1,
+    sourceDigits: serverDigitsOf(latestAtTime),
+    previousRecord: records.at(-1) || null
+  };
+  const rankings = [0, 1, 2].map(position => serverPredictPosition(model, records, position, context));
+  const deltaVariants = [0, 1, 2].map(rankIndex =>
+    rankings.map(ranking => ranking[rankIndex]?.digit ?? ranking[0]?.digit ?? 0)
+  );
+  const variants = deltaVariants.map(deltaDigits =>
+    serverDigitsOf(latestAtTime).map((digit, index) => serverMod10(digit + deltaDigits[index]))
+  );
+  const targetId = Number(latestOverall.id) + 1;
+  return {
+    id: `server-auto-${targetId}`,
+    automatic: true,
+    server: true,
+    createdAt,
+    targetId,
+    targetDate: next.date || target.date,
+    targetTime: target.time,
+    baseId: latestAtTime.id,
+    baseCode: serverCodeOfDigits(serverDigitsOf(latestAtTime)),
+    delta: serverCodeOfDigits(deltaVariants[0]),
+    deltaVariants: deltaVariants.map(serverCodeOfDigits),
+    variants: variants.map(serverCodeOfDigits)
+  };
+}
+
+function ensureServerForecast(existingForecasts, historyDraws) {
+  const forecasts = Array.isArray(existingForecasts)
+    ? existingForecasts.map(normalizeStoredForecast).filter(Boolean)
+    : [];
+  const generated = buildServerForecast(historyDraws);
+  if (generated && !forecasts.some(item => Number(item.targetId) === generated.targetId)) {
+    forecasts.push(generated);
+  }
+  return forecasts
+    .sort((first, second) => Number(first.targetId) - Number(second.targetId))
+    .slice(-240);
+}
+
 async function readExisting() {
   try {
     const payload = JSON.parse(await fs.readFile(LIVE_FILE, 'utf8'));
@@ -522,14 +814,15 @@ async function readExisting() {
       .filter(Boolean)
       .sort((a, b) => b.id - a.id);
     return {
-      schema: 1,
+      schema: Number(payload?.schema) || 1,
       source: payload?.source ?? '',
       updatedAt: payload?.updatedAt ?? null,
       latest: Number(payload?.latest) || draws[0]?.id || 0,
+      forecasts: Array.isArray(payload?.forecasts) ? payload.forecasts : [],
       draws
     };
   } catch {
-    return { schema: 1, source: '', updatedAt: null, latest: 0, draws: [] };
+    return { schema: 1, source: '', updatedAt: null, latest: 0, forecasts: [], draws: [] };
   }
 }
 
@@ -735,25 +1028,34 @@ async function main() {
   for (const draw of existing.draws) map.set(draw.id, draw);
   for (const draw of result.draws) map.set(draw.id, draw);
 
-  const draws = [...map.values()].sort((a, b) => b.id - a.id).slice(0, 150);
+  const historyDraws = uniqueDraws([...trusted, ...existing.draws, ...result.draws]);
+  const draws = historyDraws.slice(0, 150);
   if (draws.length < 3) throw new Error('после объединения осталось слишком мало тиражей');
 
-  if (sameDraws(draws, existing.draws)) {
-    console.log(`Новых тиражей нет. Последний №${draws[0].id}. Файл не изменён.`);
+  // Прогноз рассчитывается и фиксируется на сервере сразу после последнего факта.
+  // Поэтому он сохраняется даже тогда, когда телефон и приложение закрыты.
+  const forecasts = ensureServerForecast(existing.forecasts, historyDraws);
+  const drawsChanged = !sameDraws(draws, existing.draws);
+  const forecastsChanged = JSON.stringify(forecasts) !== JSON.stringify(
+    (existing.forecasts || []).map(normalizeStoredForecast).filter(Boolean)
+  );
+  if (!drawsChanged && !forecastsChanged) {
+    console.log(`Новых тиражей нет. Прогноз на №${draws[0].id + 1} уже сохранён. Файл не изменён.`);
     return;
   }
 
   const payload = {
-    schema: 2,
+    schema: 3,
     source: result.source,
     updatedAt: new Date().toISOString(),
     latest: draws[0].id,
     regularTimes: [...REGULAR_DRAW_TIMES],
+    forecasts,
     draws
   };
 
   await fs.writeFile(LIVE_FILE, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  console.log(`Обновлён top3-live.json. Последний №${draws[0].id}; строк: ${draws.length}; источник: ${result.source}.`);
+  console.log(`Обновлён top3-live.json. Последний №${draws[0].id}; строк: ${draws.length}; прогнозов: ${forecasts.length}; источник: ${result.source}.`);
 }
 
 const isMain = process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url;
@@ -772,5 +1074,7 @@ export {
   parseStolotoJson,
   parseStolotoText,
   validateAgainstTrusted,
-  uniqueDraws
+  uniqueDraws,
+  buildServerForecast,
+  ensureServerForecast
 };

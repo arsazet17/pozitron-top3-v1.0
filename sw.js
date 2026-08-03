@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yulia-top3-v1-0-26';
+const CACHE_NAME = 'yulia-top3-v1-0-27';
 const OFFLINE_URL = './index.html';
 const LIVE_FILE = './top3-live.json';
 const ASSETS = [
