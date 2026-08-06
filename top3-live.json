@@ -1,8 +1,8 @@
 {
   "schema": 3,
-  "source": "Lucky Numbers напрямую",
-  "updatedAt": "2026-08-06T19:11:08.239Z",
-  "latest": 267430,
+  "source": "Lucky Numbers через Jina Reader",
+  "updatedAt": "2026-08-06T21:58:09.610Z",
+  "latest": 267431,
   "regularTimes": [
     "02:40",
     "04:40",
@@ -851,9 +851,39 @@
         "709",
         "068"
       ]
+    },
+    {
+      "id": "server-auto-267432",
+      "automatic": true,
+      "server": true,
+      "createdAt": "2026-08-06T21:58:09.587Z",
+      "targetId": 267432,
+      "targetDate": "07.08.26",
+      "targetTime": "02:40",
+      "baseId": 267422,
+      "baseCode": "800",
+      "delta": "434",
+      "deltaVariants": [
+        "434",
+        "155",
+        "097"
+      ],
+      "variants": [
+        "234",
+        "955",
+        "897"
+      ]
     }
   ],
   "draws": [
+    {
+      "id": 267431,
+      "date": "06.08.26",
+      "time": "22:40",
+      "a": 9,
+      "b": 5,
+      "c": 9
+    },
     {
       "id": 267430,
       "date": "06.08.26",
@@ -2045,14 +2075,6 @@
       "a": 6,
       "b": 5,
       "c": 4
-    },
-    {
-      "id": 267281,
-      "date": "22.07.26",
-      "time": "22:40",
-      "a": 6,
-      "b": 6,
-      "c": 2
     }
   ]
 }
