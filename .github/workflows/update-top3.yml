@@ -1,0 +1,69 @@
+name: Update TOP-3 from Stoloto
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'update-top3.mjs'
+      - 'patch-stoloto-ui.mjs'
+      - '.github/workflows/update-top3.yml'
+      - '.github/workflows/update-top3-backup.yml'
+  schedule:
+    - cron: '2,12,22,32,42,52 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yulia-top3-stoloto-oauth
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Replace Lucky Numbers labels with Stoloto
+        run: node patch-stoloto-ui.mjs
+
+      - name: Commit Stoloto UI labels
+        run: |
+          if git diff --quiet -- index.html app.js; then
+            echo "Интерфейс уже показывает Столото"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add index.html app.js
+            git commit -m "TOP3: show Stoloto as update source"
+            git push
+          fi
+
+      - name: Install Chromium
+        run: |
+          npm install --no-save playwright@1.54.2
+          npx playwright install --with-deps chromium
+
+      - name: Update from official Stoloto
+        env:
+          STOLOTO_EMAIL: ${{ secrets.STOLOTO_EMAIL }}
+          STOLOTO_PASSWORD: ${{ secrets.STOLOTO_PASSWORD }}
+        run: node update-top3.mjs
+
+      - name: Commit verified live data
+        run: |
+          if git diff --quiet -- top3-live.json; then
+            echo "Нет новых подтверждённых тиражей"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add top3-live.json
+          git commit -m "TOP3: update from verified Stoloto OAuth"
+          git push
