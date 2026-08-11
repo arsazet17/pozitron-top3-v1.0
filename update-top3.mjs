@@ -1,519 +1,286 @@
 import fs from 'node:fs/promises';
+import { chromium } from 'playwright';
+
+const EMAIL = process.env.STOLOTO_EMAIL || '';
+const PASSWORD = process.env.STOLOTO_PASSWORD || '';
 
 const LIVE_FILE = new URL('./top3-live.json', import.meta.url);
-const SEED_FILE = new URL('./top3-data.js', import.meta.url);
+const LOGIN_URL = 'https://oauth.stoloto.ru/login';
+const ARCHIVE_URL = 'https://m.stoloto.ru/top3/archive';
 
-const LUCKY_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
-const STOLOTO_ARCHIVE_URL = 'https://www.stoloto.ru/top3/archive';
-const STOLOTO_API_URLS = [
-  'https://www.stoloto.ru/p/api/mobile/api/v36/service/draws/archive?count=100&game=top3&page=1',
-  'https://www.stoloto.ru/p/api/mobile/api/v35/service/draws/archive?count=100&game=top3&page=1',
-  'https://www.stoloto.ru/p/api/mobile/api/v34/service/draws/archive?count=100&game=top3&page=1'
-];
-
-// Обычное расписание TOP-3. Оно совпадает с десятью временными архивами приложения.
 const REGULAR_DRAW_TIMES = new Set([
   '02:40','04:40','06:40','07:40','09:40',
   '11:40','13:40','16:25','21:25','22:40'
 ]);
 
-const MONTHS_RU = new Map([
-  ['января', 1], ['февраля', 2], ['марта', 3], ['апреля', 4],
-  ['мая', 5], ['июня', 6], ['июля', 7], ['августа', 8],
-  ['сентября', 9], ['октября', 10], ['ноября', 11], ['декабря', 12]
-]);
-
-function normalizeDate(value) {
-  const text = String(value ?? '').trim();
-  let match = text.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})$/);
-  if (match) {
-    return `${match[1].padStart(2, '0')}.${match[2].padStart(2, '0')}.${match[3].slice(-2)}`;
-  }
-
-  match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (match) {
-    return `${match[3].padStart(2, '0')}.${match[2].padStart(2, '0')}.${match[1].slice(-2)}`;
-  }
-
-  return '';
+function clean(s) {
+  return String(s ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function normalizeTime(value) {
-  const match = String(value ?? '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (!match) return '';
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return '';
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-}
-
-function formatMoscowDateTime(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat('en-GB', {
+function moscowDateParts(offsetDays = 0) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Moscow',
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
-  return {
-    date: `${values.day}.${values.month}.${values.year}`,
-    time: `${values.hour}:${values.minute}`
-  };
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date());
+  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+  const d = new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), 12, 0, 0));
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d;
 }
 
-function parseDateTime(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
-    return formatMoscowDateTime(new Date(milliseconds));
+function formatDate(d) {
+  return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${String(d.getUTCFullYear()).slice(-2)}`;
+}
+
+function validDate(s) {
+  const m = String(s).match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+  if (!m) return false;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = 2000 + Number(m[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+}
+
+function validDraw(d) {
+  return Number.isInteger(d?.id)
+    && d.id >= 100000 && d.id <= 999999
+    && validDate(d.date)
+    && REGULAR_DRAW_TIMES.has(d.time)
+    && [d.a, d.b, d.c].every(n => Number.isInteger(n) && n >= 0 && n <= 9);
+}
+
+function normalizeDraw(d) {
+  const x = {
+    id: Number(d?.id),
+    date: String(d?.date ?? ''),
+    time: String(d?.time ?? ''),
+    a: Number(d?.a),
+    b: Number(d?.b),
+    c: Number(d?.c)
+  };
+  return validDraw(x) ? x : null;
+}
+
+function dedupe(draws) {
+  const map = new Map();
+  for (const raw of draws) {
+    const d = normalizeDraw(raw);
+    if (d) map.set(d.id, d);
   }
+  return [...map.values()].sort((a, b) => b.id - a.id);
+}
 
-  const text = String(value ?? '').replace(/\u00a0/g, ' ').trim();
-  if (!text) return null;
+function drawKey(d) {
+  return `${d.id}|${d.date}|${d.time}|${d.a}${d.b}${d.c}`;
+}
 
-  let match = text.match(/(?<!\d)(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})[^\d]{0,12}(\d{1,2}:\d{2})(?::\d{2})?/);
-  if (match) {
-    return {
-      date: normalizeDate(`${match[1]}.${match[2]}.${match[3]}`),
-      time: normalizeTime(match[4])
-    };
-  }
+function parseArchiveText(rawText) {
+  const lines = String(rawText ?? '')
+    .split(/\r?\n/)
+    .map(clean)
+    .filter(Boolean);
 
-  match = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})[T\s](\d{1,2}:\d{2})(?::\d{2}(?:\.\d+)?)?/);
-  if (match) {
-    // Если час указан вместе с часовым поясом, Date корректно переведёт его в Москву.
-    if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
-      const converted = formatMoscowDateTime(new Date(text));
-      if (converted) return converted;
+  const months = {
+    'января':1, 'февраля':2, 'марта':3, 'апреля':4, 'мая':5, 'июня':6,
+    'июля':7, 'августа':8, 'сентября':9, 'октября':10, 'ноября':11, 'декабря':12
+  };
+
+  const currentYear = Number(new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric'
+  }).format(new Date()));
+
+  const found = [];
+  let currentDate = '';
+
+  function setExplicitDate(line) {
+    if (/^Сегодня$/i.test(line)) {
+      currentDate = formatDate(moscowDateParts(0));
+      return true;
     }
-    return {
-      date: normalizeDate(`${match[1]}-${match[2]}-${match[3]}`),
-      time: normalizeTime(match[4])
-    };
-  }
 
-  match = text.toLowerCase().match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})[^\d]{0,20}(\d{1,2}:\d{2})/i);
-  if (match && MONTHS_RU.has(match[2])) {
-    return {
-      date: normalizeDate(`${match[1]}.${MONTHS_RU.get(match[2])}.${match[3]}`),
-      time: normalizeTime(match[4])
-    };
-  }
+    if (/^Вчера$/i.test(line)) {
+      currentDate = formatDate(moscowDateParts(-1));
+      return true;
+    }
 
-  // Дата без времени должна дождаться отдельного поля time/drawTime.
-  const dateOnly = normalizeDate(text);
-  if (dateOnly) return { date: dateOnly, time: '' };
-
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : formatMoscowDateTime(parsed);
-}
-
-function validDraw(draw) {
-  return Number.isInteger(draw?.id)
-    && draw.id >= 100_000
-    && draw.id <= 999_999
-    && /^\d{2}\.\d{2}\.\d{2}$/.test(draw.date)
-    && REGULAR_DRAW_TIMES.has(draw.time)
-    && [draw.a, draw.b, draw.c].every(number => Number.isInteger(number) && number >= 0 && number <= 9);
-}
-
-function normalizeDraw(draw) {
-  const normalized = {
-    id: Number(draw?.id),
-    date: normalizeDate(draw?.date),
-    time: normalizeTime(draw?.time),
-    a: Number(draw?.a),
-    b: Number(draw?.b),
-    c: Number(draw?.c)
-  };
-  return validDraw(normalized) ? normalized : null;
-}
-
-function stripMarkup(value) {
-  return String(value ?? '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;|&#160;|&thinsp;/gi, ' ')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function parseButtonDigits(fragment) {
-  const buttons = [...String(fragment).matchAll(
-    /(?:\[Button:\s*|<button\b[^>]*>\s*)([0-9])(?:\]|\s*<\/button>)/gi
-  )].map(match => Number(match[1]));
-  return buttons.length === 3 ? buttons : null;
-}
-
-function parseThreeDigits(value) {
-  if (Array.isArray(value)) {
-    const direct = [];
-    for (const item of value) {
-      if (typeof item === 'number' || typeof item === 'string') {
-        const number = Number(String(item).trim());
-        if (Number.isInteger(number) && number >= 0 && number <= 9) direct.push(number);
-      } else if (item && typeof item === 'object') {
-        const primitive = item.number ?? item.value ?? item.ball ?? item.num ?? item.result;
-        const number = Number(primitive);
-        if (Number.isInteger(number) && number >= 0 && number <= 9) direct.push(number);
+    let m = line.toLowerCase().match(/^(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?$/i);
+    if (m && months[m[2]]) {
+      const day = Number(m[1]);
+      const month = months[m[2]];
+      const year = m[3] ? Number(m[3]) : currentYear;
+      const d = new Date(Date.UTC(year, month - 1, day));
+      const candidate = formatDate(d);
+      if (validDate(candidate)) {
+        currentDate = candidate;
+        return true;
       }
     }
-    if (direct.length === 3) return direct;
 
-    for (const item of value) {
-      const nested = parseThreeDigits(item);
-      if (nested) return nested;
-    }
-    return null;
-  }
-
-  if (value && typeof value === 'object') {
-    const preferred = [
-      'numbers', 'values', 'balls', 'digits', 'winningNumbers',
-      'winning_numbers', 'winningCombination', 'combination',
-      'result', 'results', 'drawResult', 'draw_result'
-    ];
-    for (const key of preferred) {
-      if (Object.hasOwn(value, key)) {
-        const nested = parseThreeDigits(value[key]);
-        if (nested) return nested;
+    m = line.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2}|\d{4})$/);
+    if (m) {
+      const year = String(m[3]).length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+      const d = new Date(Date.UTC(year, Number(m[2]) - 1, Number(m[1])));
+      const candidate = formatDate(d);
+      if (validDate(candidate)) {
+        currentDate = candidate;
+        return true;
       }
     }
-    return null;
+
+    return false;
   }
 
-  const text = stripMarkup(value);
-  if (!text) return null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
 
-  const compact = text.replace(/\D/g, '');
-  if (/^\d{3}$/.test(compact)) return [...compact].map(Number);
+    if (setExplicitDate(line)) continue;
 
-  const tokens = text.match(/(?:^|\D)0?([0-9])(?=\D|$)/g) ?? [];
-  const digits = tokens.map(token => Number(token.replace(/\D/g, '').slice(-1)));
-  return digits.length === 3 ? digits : null;
-}
+    const tm = line.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+    if (!tm || !currentDate) continue;
 
-function parseDrawId(value) {
-  const compact = String(value ?? '').replace(/[^0-9]/g, '');
-  if (!/^\d{6}$/.test(compact)) return null;
-  const id = Number(compact);
-  return id >= 100_000 && id <= 999_999 ? id : null;
-}
+    const time = `${tm[1]}:${tm[2]}`;
+    if (!REGULAR_DRAW_TIMES.has(time)) continue;
 
-function normalizeKey(key) {
-  return String(key).replace(/[^a-zа-я0-9]/gi, '').toLowerCase();
-}
+    const idLine = lines[i + 1] || '';
+    const idm = idLine.match(/^№\s*(\d{6})$/i);
+    if (!idm) continue;
 
-const ID_KEYS = new Set([
-  'number', 'drawnumber', 'drawnum', 'drawno', 'drawid', 'draw',
-  'tirage', 'tiragenumber', 'circulation', 'circulationnumber'
-]);
-const DATE_KEYS = new Set([
-  'drawdate', 'drawdatetime', 'datetime', 'date', 'drawat', 'drawtime',
-  'startdate', 'startedat', 'plannedat', 'eventdate', 'timestamp'
-]);
-const TIME_KEYS = new Set(['time', 'drawtime', 'starttime', 'eventtime']);
-const DIGIT_KEYS = new Set([
-  'winningnumbers', 'winningnumber', 'winningcombination', 'numbers',
-  'combination', 'balls', 'digits', 'result', 'results', 'drawresult',
-  'winnumbers', 'numberstirage'
-]);
+    const digits = lines.slice(i + 2, i + 5);
+    if (digits.length !== 3 || !digits.every(x => /^[0-9]$/.test(x))) continue;
 
-function directDrawId(object) {
-  for (const [key, value] of Object.entries(object)) {
-    if (!ID_KEYS.has(normalizeKey(key))) continue;
-    const id = parseDrawId(value);
-    if (id) return id;
+    const d = {
+      id: Number(idm[1]),
+      date: currentDate,
+      time,
+      a: Number(digits[0]),
+      b: Number(digits[1]),
+      c: Number(digits[2])
+    };
+
+    if (validDraw(d)) found.push(d);
   }
 
-  for (const [key, value] of Object.entries(object)) {
-    if (!['drawinfo', 'drawdata', 'draw'].includes(normalizeKey(key))) continue;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    for (const [nestedKey, nestedValue] of Object.entries(value)) {
-      if (!ID_KEYS.has(normalizeKey(nestedKey))) continue;
-      const id = parseDrawId(nestedValue);
-      if (id) return id;
-    }
-  }
+  return dedupe(found);
+}
 
+async function firstVisible(candidates) {
+  for (const loc of candidates) {
+    if (await loc.isVisible({ timeout: 800 }).catch(() => false)) return loc;
+  }
   return null;
 }
 
-function findDigitsInObject(object, depth = 0) {
-  if (!object || typeof object !== 'object' || depth > 3) return null;
-
-  for (const [key, value] of Object.entries(object)) {
-    if (!DIGIT_KEYS.has(normalizeKey(key))) continue;
-    const digits = parseThreeDigits(value);
-    if (digits) return digits;
+async function login(page) {
+  if (!EMAIL || !PASSWORD) {
+    throw new Error('не заданы Repository Secrets STOLOTO_EMAIL / STOLOTO_PASSWORD');
   }
 
-  for (const [key, value] of Object.entries(object)) {
-    if (!value || typeof value !== 'object') continue;
-    const normalizedKey = normalizeKey(key);
-    if (!/(win|result|combination|number|ball|draw)/.test(normalizedKey)) continue;
-    const digits = findDigitsInObject(value, depth + 1);
-    if (digits) return digits;
+  await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await page.waitForTimeout(900);
+
+  const email = await firstVisible([
+    page.getByLabel(/телефон или email/i).first(),
+    page.getByLabel(/email/i).first(),
+    page.locator('input[type="email"]').first(),
+    page.locator('input[name*="email" i]').first(),
+    page.locator('input[name*="login" i]').first(),
+    page.locator('input[autocomplete="username"]').first(),
+    page.locator('input[type="text"]').first()
+  ]);
+
+  const password = await firstVisible([
+    page.getByLabel(/пароль/i).first(),
+    page.locator('input[type="password"]').first(),
+    page.locator('input[name*="password" i]').first(),
+    page.locator('input[autocomplete="current-password"]').first()
+  ]);
+
+  if (!email || !password) throw new Error('OAuth-форма не отдала поля логин/пароль');
+
+  await email.fill(EMAIL);
+  await password.fill(PASSWORD);
+
+  const submit = await firstVisible([
+    page.getByRole('button', { name: /^войти$/i }).first(),
+    page.locator('button[type="submit"]').first(),
+    page.locator('input[type="submit"]').first()
+  ]);
+
+  if (!submit) throw new Error('OAuth-форма не отдала кнопку "Войти"');
+  if (!(await submit.isEnabled().catch(() => false))) throw new Error('кнопка "Войти" неактивна');
+
+  await submit.click({ timeout: 5000 });
+  await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(1800);
+
+  const body = clean(await page.locator('body').innerText().catch(() => ''));
+  if (/неверн.*(парол|логин|почт)|пользователь.*не найден|ошибк.*вход/i.test(body)) {
+    throw new Error('Столото отклонил авторизацию');
   }
 
-  return null;
+  const stillPassword = await page.locator('input[type="password"]').first()
+    .isVisible({ timeout: 300 }).catch(() => false);
+
+  if (page.url().includes('/login') && stillPassword) {
+    throw new Error('OAuth-вход не подтверждён');
+  }
 }
 
-function findDateTimeInObject(object, depth = 0) {
-  if (!object || typeof object !== 'object' || depth > 3) return null;
+async function readArchivePass(browser, pass) {
+  const context = await browser.newContext({
+    locale: 'ru-RU',
+    timezoneId: 'Europe/Moscow',
+    viewport: { width: 412, height: 1800 },
+    userAgent: 'Mozilla/5.0 (Linux; Android 10; VOG-L29) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36'
+  });
 
-  let separateDate = '';
-  let separateTime = '';
+  const page = await context.newPage();
 
-  for (const [key, value] of Object.entries(object)) {
-    const normalizedKey = normalizeKey(key);
-    if (DATE_KEYS.has(normalizedKey)) {
-      const combined = parseDateTime(value);
-      if (combined?.date && combined?.time) return combined;
-      const dateOnly = normalizeDate(value);
-      if (dateOnly) separateDate = dateOnly;
-    }
-    if (TIME_KEYS.has(normalizedKey)) {
-      const timeOnly = normalizeTime(value);
-      if (timeOnly) separateTime = timeOnly;
-    }
-  }
-
-  if (separateDate && separateTime) return { date: separateDate, time: separateTime };
-
-  for (const [key, value] of Object.entries(object)) {
-    if (!value || typeof value !== 'object') continue;
-    if (!/(draw|date|time|event|start|plan)/.test(normalizeKey(key))) continue;
-    const nested = findDateTimeInObject(value, depth + 1);
-    if (!nested) continue;
-    if (!separateDate && nested.date) separateDate = nested.date;
-    if (!separateTime && nested.time) separateTime = nested.time;
-    if (separateDate && separateTime) return { date: separateDate, time: separateTime };
-  }
-
-  return separateDate || separateTime ? { date: separateDate, time: separateTime } : null;
-}
-
-function parseStolotoJson(payload) {
-  const root = typeof payload === 'string' ? JSON.parse(payload) : payload;
-  const found = new Map();
-  const seen = new Set();
-
-  const visit = value => {
-    if (!value || typeof value !== 'object' || seen.has(value)) return;
-    seen.add(value);
-
-    if (!Array.isArray(value)) {
-      const id = directDrawId(value);
-      if (id) {
-        const digits = findDigitsInObject(value);
-        const dateTime = findDateTimeInObject(value);
-        if (digits && dateTime) {
-          const draw = normalizeDraw({
-            id,
-            date: dateTime.date,
-            time: dateTime.time,
-            a: digits[0],
-            b: digits[1],
-            c: digits[2]
-          });
-          if (draw) found.set(draw.id, draw);
-        }
-      }
-    }
-
-    for (const child of Array.isArray(value) ? value : Object.values(value)) visit(child);
-  };
-
-  visit(root);
-  return [...found.values()].sort((a, b) => b.id - a.id);
-}
-
-function parseJsonScripts(text) {
-  const found = new Map();
-  const candidates = [];
-
-  for (const match of String(text).matchAll(
-    /<script\b[^>]*(?:type=["']application\/(?:ld\+)?json["']|id=["']__NEXT_DATA__["'])[^>]*>([\s\S]*?)<\/script>/gi
-  )) {
-    candidates.push(match[1].trim());
-  }
-
-  for (const candidate of candidates) {
-    try {
-      for (const draw of parseStolotoJson(candidate)) found.set(draw.id, draw);
-    } catch {
-      // На странице могут встречаться служебные JSON-блоки — пропускаем их.
-    }
-  }
-
-  return [...found.values()].sort((a, b) => b.id - a.id);
-}
-
-function parseStolotoText(text, expectedId = null) {
-  const source = String(text ?? '').replace(/\u00a0/g, ' ');
-  const found = new Map(parseJsonScripts(source).map(draw => [draw.id, draw]));
-
-  // Старый и резервный HTML Столото: <ul class="winning_numbers"><li>1</li>...</ul>
-  const numberBlocks = [...source.matchAll(
-    /<(?:ul|div)\b[^>]*class=["'][^"']*(?:winning[_-]?numbers|winningNumbers)[^"']*["'][^>]*>([\s\S]*?)<\/(?:ul|div)>/gi
-  )];
-
-  for (const block of numberBlocks) {
-    const digits = [...block[1].matchAll(/<(?:li|span|b)\b[^>]*>\s*0?([0-9])\s*<\/(?:li|span|b)>/gi)]
-      .map(match => Number(match[1]));
-    if (digits.length < 3) continue;
-
-    const nearbyStart = Math.max(0, block.index - 2500);
-    const nearbyEnd = Math.min(source.length, block.index + block[0].length + 1500);
-    const nearby = source.slice(nearbyStart, nearbyEnd);
-    const plain = stripMarkup(nearby);
-    const id = expectedId ?? parseDrawId(plain.match(/(?:№|тираж[^0-9]{0,20})(\d{6})/i)?.[1]);
-    const dateTime = parseDateTime(plain);
-    const draw = normalizeDraw({
-      id,
-      date: dateTime?.date,
-      time: dateTime?.time,
-      a: digits[0], b: digits[1], c: digits[2]
-    });
-    if (draw) found.set(draw.id, draw);
-  }
-
-  // Markdown/текстовая таблица официального архива: дата, время, № и три цифры.
-  const plain = stripMarkup(source);
-  const rowPatterns = [
-    /(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})\s+(\d{1,2}:\d{2})(?:[:]\d{2})?[^\d]{0,40}(\d{6})[^\d]{0,80}0?([0-9])\D+0?([0-9])\D+0?([0-9])/g,
-    /(?:№|тираж[^0-9]{0,12})(\d{6})[^\d]{0,80}(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})[^\d]{0,20}(\d{1,2}:\d{2})[^\d]{0,100}0?([0-9])\D+0?([0-9])\D+0?([0-9])/gi
-  ];
-
-  for (const match of plain.matchAll(rowPatterns[0])) {
-    const draw = normalizeDraw({
-      id: match[3], date: match[1], time: match[2],
-      a: match[4], b: match[5], c: match[6]
-    });
-    if (draw) found.set(draw.id, draw);
-  }
-  for (const match of plain.matchAll(rowPatterns[1])) {
-    const draw = normalizeDraw({
-      id: match[1], date: match[2], time: match[3],
-      a: match[4], b: match[5], c: match[6]
-    });
-    if (draw) found.set(draw.id, draw);
-  }
-
-  return [...found.values()].sort((a, b) => b.id - a.id);
-}
-
-function parseLuckyText(text) {
-  const normalized = String(text ?? '').replace(/\u00a0/g, ' ');
-  const found = new Map();
-
-  for (const rawLine of normalized.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.includes('|')) continue;
-    const cells = line.split('|').map(cell => cell.trim());
-    const idIndex = cells.findIndex(cell => /^\d{6}$/.test(stripMarkup(cell).replace(/\s/g, '')));
-    if (idIndex < 0) continue;
-
-    const dateTime = line.match(/(\d{1,2}\.\d{1,2}\.\d{2,4})\s*,\s*(\d{1,2}:\d{2})/);
-    if (!dateTime) continue;
-
-    let digits = null;
-    for (let index = 0; index < idIndex; index += 1) {
-      const candidate = parseButtonDigits(cells[index]);
-      if (candidate) {
-        digits = candidate;
-        break;
-      }
-    }
-
-    if (!digits) {
-      for (let index = 0; index < idIndex; index += 1) {
-        const cell = stripMarkup(cells[index]);
-        if (cell.includes('+')) continue;
-        const candidate = parseThreeDigits(cell);
-        if (candidate) {
-          digits = candidate;
-          break;
-        }
-      }
-    }
-
-    if (!digits) continue;
-    const draw = normalizeDraw({
-      id: stripMarkup(cells[idIndex]).replace(/\s/g, ''),
-      date: dateTime[1],
-      time: dateTime[2],
-      a: digits[0], b: digits[1], c: digits[2]
-    });
-    if (draw) found.set(draw.id, draw);
-  }
-
-  for (const match of normalized.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
-    const row = match[1];
-    const plain = stripMarkup(row);
-    const dateTime = plain.match(/(\d{1,2}\.\d{1,2}\.\d{2,4})\s*,\s*(\d{1,2}:\d{2})/);
-    const idMatch = plain.match(/(?:^|\D)(\d{3})\s?(\d{3})(?:\D|$)/);
-    if (!dateTime || !idMatch) continue;
-
-    const digits = [...row.matchAll(/<button\b[^>]*>\s*([0-9])\s*<\/button>/gi)]
-      .map(button => Number(button[1]));
-    if (digits.length !== 3) continue;
-
-    const draw = normalizeDraw({
-      id: idMatch[1] + idMatch[2],
-      date: dateTime[1],
-      time: dateTime[2],
-      a: digits[0], b: digits[1], c: digits[2]
-    });
-    if (draw) found.set(draw.id, draw);
-  }
-
-  return [...found.values()].sort((a, b) => b.id - a.id);
-}
-
-async function fetchText(url, headers = {}, timeoutMs = 45_000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Yulia-TOP3-Updater/1.0.19',
-        'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.5',
-        ...headers
-      }
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`источник не ответил за ${Math.round(timeoutMs / 1000)} секунд`);
-    throw error;
+    await login(page);
+    await page.goto(ARCHIVE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(2200);
+
+    for (let i = 0; i < 7; i += 1) {
+      await page.mouse.wheel(0, 1400);
+      await page.waitForTimeout(350);
+    }
+
+    await page.mouse.wheel(0, -9800);
+    await page.waitForTimeout(500);
+
+    const body = await page.locator('body').innerText();
+    const draws = parseArchiveText(body);
+
+    if (draws.length < 3) {
+      const sample = body.split(/\r?\n/).map(clean).filter(Boolean).slice(0, 80);
+      console.log('ARCHIVE TEXT SAMPLE:', JSON.stringify(sample));
+      throw new Error(`распознано слишком мало тиражей: ${draws.length}`);
+    }
+
+    console.log(
+      `PASS ${pass}: rows=${draws.length}; latest №${draws[0].id} ${draws[0].date} ${draws[0].time}=${draws[0].a}${draws[0].b}${draws[0].c}`
+    );
+
+    return draws;
   } finally {
-    clearTimeout(timeout);
+    await context.close();
   }
 }
 
-async function readSeed() {
-  const text = (await fs.readFile(SEED_FILE, 'utf8')).trim();
-  const json = text.replace(/^\s*window\.TOP3_SEED\s*=\s*/, '').replace(/;\s*$/, '');
-  const rows = JSON.parse(json);
-  return rows
-    .map(row => normalizeDraw({ id: row[0], date: row[1], time: row[2], a: row[3], b: row[4], c: row[5] }))
-    .filter(Boolean)
-    .sort((a, b) => b.id - a.id);
+function sameSnapshot(a, b) {
+  return JSON.stringify(a.slice(0, 20)) === JSON.stringify(b.slice(0, 20));
 }
 
+function moscowStamp(d) {
+  const [dd, mm, yy] = d.date.split('.').map(Number);
+  const [hh, mi] = d.time.split(':').map(Number);
+  return Date.UTC(2000 + yy, mm - 1, dd, hh - 3, mi);
+}
+
+// ===== СЕРВЕРНЫЙ ПРОГНОЗ: СОХРАНЕНА ЛОГИКА Yulia TOP-3 =====
 
 function serverMod10(value) {
   return ((Number(value) % 10) + 10) % 10;
@@ -552,16 +319,25 @@ function serverNextDrawAfterLatest(latest) {
   if (!latest) return { date: '', time: '' };
   const [currentHour, currentMinute] = String(latest.time).split(':').map(Number);
   const currentMinutes = currentHour * 60 + currentMinute;
+
   let nextTime = times.find(time => {
     const [hour, minute] = time.split(':').map(Number);
     return hour * 60 + minute > currentMinutes;
   });
+
   const date = serverParseDrawDate(latest.date) || new Date();
+
   if (!nextTime) {
     nextTime = times[0];
     date.setUTCDate(date.getUTCDate() + 1);
   }
-  return { date: serverFormatDrawDate(date), time: nextTime, weekday: date.getUTCDay(), dayGap: 1 };
+
+  return {
+    date: serverFormatDrawDate(date),
+    time: nextTime,
+    weekday: date.getUTCDay(),
+    dayGap: 1
+  };
 }
 
 function serverDrawsForTime(time, sourceDraws) {
@@ -587,10 +363,12 @@ function serverNextSameTime(latest, time) {
 function serverBuildTransitions(time, sourceDraws) {
   const ordered = serverDrawsForTime(time, sourceDraws).reverse();
   const records = [];
+
   for (let index = 1; index < ordered.length; index += 1) {
     const previous = ordered[index - 1];
     const current = ordered[index];
     const date = serverParseDrawDate(current.date);
+
     records.push({
       previous,
       current,
@@ -599,6 +377,7 @@ function serverBuildTransitions(time, sourceDraws) {
       dayGap: serverDateGapDays(previous, current)
     });
   }
+
   return records;
 }
 
@@ -638,22 +417,28 @@ function serverHistoryKey(records, index, position, length) {
 function serverAddAiRecord(model, records, index) {
   const record = records[index];
   if (!record) return;
+
   const previousRecord = records[index - 1] || null;
+
   for (let position = 0; position < 3; position += 1) {
     const target = record.delta[position];
     const sourceDigit = serverDigitsOf(record.previous)[position];
     const bucket = model[position];
+
     serverIncrementArray(bucket.global, target);
     serverIncrementMap(bucket.weekday, record.weekday, target);
     serverIncrementMap(bucket.source, sourceDigit, target);
     serverIncrementMap(bucket.gap, Math.min(7, record.dayGap || 1), target);
+
     if (previousRecord) {
       serverIncrementMap(bucket.previousDelta, previousRecord.delta[position], target);
       serverIncrementMap(bucket.previousFullDelta, serverCodeOfDigits(previousRecord.delta), target);
     }
+
     const key2 = serverHistoryKey(records, index, position, 2);
     const key3 = serverHistoryKey(records, index, position, 3);
     const key5 = serverHistoryKey(records, index, position, 5);
+
     if (key2 !== null) serverIncrementMap(bucket.history2, key2, target);
     if (key3 !== null) serverIncrementMap(bucket.history3, key3, target);
     if (key5 !== null) serverIncrementMap(bucket.history5, key5, target);
@@ -672,7 +457,9 @@ function serverSmoothedProbability(counts, digit, alpha = 1) {
 function serverAddEvidence(scores, counts, baseWeight, supportScale, alpha = 1) {
   const support = serverCountsSupport(counts);
   if (!support) return;
+
   const adaptiveWeight = baseWeight * Math.min(1, Math.log1p(support) / Math.log1p(supportScale));
+
   for (let digit = 0; digit < 10; digit += 1) {
     scores[digit] += adaptiveWeight * Math.log(serverSmoothedProbability(counts, digit, alpha));
   }
@@ -699,25 +486,32 @@ function serverContextHistoryKey(records, position, length) {
 function serverPredictPosition(model, records, position, context) {
   const bucket = model[position];
   const scores = Array(10).fill(0);
+
   serverAddEvidence(scores, bucket.global, 1.20, 1600, 1.25);
   serverAddEvidence(scores, bucket.weekday.get(String(context.weekday)), 0.28, 260, 1.6);
   serverAddEvidence(scores, bucket.source.get(String(context.sourceDigits[position])), 0.68, 180, 1.45);
   serverAddEvidence(scores, bucket.gap.get(String(Math.min(7, context.dayGap || 1))), 0.20, 220, 1.8);
+
   if (context.previousRecord) {
     serverAddEvidence(scores, bucket.previousDelta.get(String(context.previousRecord.delta[position])), 0.72, 180, 1.5);
     serverAddEvidence(scores, bucket.previousFullDelta.get(serverCodeOfDigits(context.previousRecord.delta)), 0.24, 25, 2.4);
   }
+
   const key2 = serverContextHistoryKey(records, position, 2);
   const key3 = serverContextHistoryKey(records, position, 3);
   const key5 = serverContextHistoryKey(records, position, 5);
+
   if (key2 !== null) serverAddEvidence(scores, bucket.history2.get(key2), 0.50, 70, 2.1);
   if (key3 !== null) serverAddEvidence(scores, bucket.history3.get(key3), 0.30, 35, 2.5);
   if (key5 !== null) serverAddEvidence(scores, bucket.history5.get(key5), 0.18, 16, 3.0);
+
   serverAddEvidence(scores, serverRecentCounts(records, position, 10), 0.36, 10, 2.2);
   serverAddEvidence(scores, serverRecentCounts(records, position, 20), 0.34, 20, 2.0);
   serverAddEvidence(scores, serverRecentCounts(records, position, 50), 0.28, 50, 1.8);
   serverAddEvidence(scores, serverRecentCounts(records, position, 200), 0.18, 200, 1.5);
+
   const probabilities = serverNormalizeScores(scores);
+
   return probabilities
     .map((probability, digit) => ({ digit, probability }))
     .sort((first, second) => second.probability - first.probability || first.digit - second.digit);
@@ -725,15 +519,21 @@ function serverPredictPosition(model, records, position, context) {
 
 function normalizeStoredForecast(raw) {
   if (!raw || typeof raw !== 'object') return null;
+
   const targetId = Number(raw.targetId);
   const variants = Array.isArray(raw.variants)
     ? raw.variants.map(value => String(value || '')).filter(value => /^\d{3}$/.test(value)).slice(0, 3)
     : [];
+
   const delta = String(raw.delta || '');
   const deltaVariants = Array.isArray(raw.deltaVariants)
     ? raw.deltaVariants.map(value => String(value || '')).filter(value => /^\d{3}$/.test(value)).slice(0, 3)
     : [];
-  if (!Number.isInteger(targetId) || targetId <= 0 || variants.length !== 3 || !/^\d{3}$/.test(delta)) return null;
+
+  if (!Number.isInteger(targetId) || targetId <= 0 || variants.length !== 3 || !/^\d{3}$/.test(delta)) {
+    return null;
+  }
+
   return {
     id: String(raw.id || `server-auto-${targetId}`),
     automatic: true,
@@ -751,17 +551,20 @@ function normalizeStoredForecast(raw) {
 }
 
 function buildServerForecast(sourceDraws, createdAt = new Date().toISOString()) {
-  const history = uniqueDraws(sourceDraws);
+  const history = dedupe(sourceDraws);
   const latestOverall = history[0] || null;
   if (!latestOverall) return null;
+
   const target = serverNextDrawAfterLatest(latestOverall);
   const timeDraws = serverDrawsForTime(target.time, history);
   const latestAtTime = timeDraws[0] || null;
   const records = serverBuildTransitions(target.time, history);
+
   if (!latestAtTime || records.length < 10) return null;
 
   const model = serverCreateAiModel();
   records.forEach((_, index) => serverAddAiRecord(model, records, index));
+
   const next = serverNextSameTime(latestAtTime, target.time);
   const context = {
     weekday: next.weekday,
@@ -769,14 +572,19 @@ function buildServerForecast(sourceDraws, createdAt = new Date().toISOString()) 
     sourceDigits: serverDigitsOf(latestAtTime),
     previousRecord: records.at(-1) || null
   };
+
   const rankings = [0, 1, 2].map(position => serverPredictPosition(model, records, position, context));
+
   const deltaVariants = [0, 1, 2].map(rankIndex =>
     rankings.map(ranking => ranking[rankIndex]?.digit ?? ranking[0]?.digit ?? 0)
   );
+
   const variants = deltaVariants.map(deltaDigits =>
     serverDigitsOf(latestAtTime).map((digit, index) => serverMod10(digit + deltaDigits[index]))
   );
+
   const targetId = Number(latestOverall.id) + 1;
+
   return {
     id: `server-auto-${targetId}`,
     automatic: true,
@@ -797,284 +605,147 @@ function ensureServerForecast(existingForecasts, historyDraws) {
   const forecasts = Array.isArray(existingForecasts)
     ? existingForecasts.map(normalizeStoredForecast).filter(Boolean)
     : [];
+
   const generated = buildServerForecast(historyDraws);
+
   if (generated && !forecasts.some(item => Number(item.targetId) === generated.targetId)) {
     forecasts.push(generated);
   }
+
   return forecasts
     .sort((first, second) => Number(first.targetId) - Number(second.targetId))
     .slice(-240);
 }
 
-async function readExisting() {
-  try {
-    const payload = JSON.parse(await fs.readFile(LIVE_FILE, 'utf8'));
-    const draws = (Array.isArray(payload) ? payload : payload?.draws ?? [])
-      .map(normalizeDraw)
-      .filter(Boolean)
-      .sort((a, b) => b.id - a.id);
-    return {
-      schema: Number(payload?.schema) || 1,
-      source: payload?.source ?? '',
-      updatedAt: payload?.updatedAt ?? null,
-      latest: Number(payload?.latest) || draws[0]?.id || 0,
-      forecasts: Array.isArray(payload?.forecasts) ? payload.forecasts : [],
-      draws
-    };
-  } catch {
-    return { schema: 1, source: '', updatedAt: null, latest: 0, forecasts: [], draws: [] };
-  }
-}
-
-function sameDraw(first, second) {
-  return Boolean(first && second)
-    && first.id === second.id
-    && first.date === second.date
-    && first.time === second.time
-    && first.a === second.a
-    && first.b === second.b
-    && first.c === second.c;
-}
-
-function uniqueDraws(draws) {
-  const map = new Map();
-  for (const rawDraw of draws) {
-    const draw = normalizeDraw(rawDraw);
-    if (draw) map.set(draw.id, draw);
-  }
-  return [...map.values()].sort((a, b) => b.id - a.id);
-}
-
-function validateAgainstTrusted(draws, trusted) {
-  const valid = uniqueDraws(draws);
-  if (valid.length < 3) throw new Error(`распознано только ${valid.length} строк`);
-
-  const trustedById = new Map(uniqueDraws(trusted).map(draw => [draw.id, draw]));
-  const overlap = valid.filter(draw => trustedById.has(draw.id));
-  if (overlap.length < 3) throw new Error('нет трёх контрольных строк из проверенного архива');
-
-  const mismatch = overlap.find(draw => !sameDraw(draw, trustedById.get(draw.id)));
-  if (mismatch) throw new Error(`контрольная строка №${mismatch.id} распознана неверно`);
-
-  return valid;
-}
-
-async function fetchOfficialApi(reference) {
-  const stamp = Date.now();
-  const settled = await Promise.allSettled(STOLOTO_API_URLS.map(async baseUrl => {
-    const url = `${baseUrl}&_=${stamp}`;
-    const text = await fetchText(url, {
-      'Accept': 'application/json,text/plain,*/*',
-      'Referer': `${STOLOTO_ARCHIVE_URL}/`
-    });
-    const draws = validateAgainstTrusted(parseStolotoJson(text), reference);
-    return {
-      draws,
-      source: `Столото API v${baseUrl.match(/\/v(\d+)\//)?.[1] ?? '?'}`
-    };
-  }));
-
-  const results = settled
-    .filter(item => item.status === 'fulfilled')
-    .map(item => item.value);
-  if (!results.length) {
-    const errors = settled
-      .filter(item => item.status === 'rejected')
-      .map(item => item.reason?.message ?? item.reason);
-    throw new Error(errors.join('; '));
-  }
-  return results.sort((a, b) => b.draws[0].id - a.draws[0].id)[0];
-}
-async function fetchOfficialPages(reference) {
-  const referenceDraws = uniqueDraws(reference);
-  const latestKnown = referenceDraws[0]?.id || 0;
-  if (!latestKnown) throw new Error('не найден последний известный тираж для проверки страниц Столото');
-
-  const found = new Map();
-  const errors = [];
-  let consecutiveMisses = 0;
-
-  // Три старых страницы нужны для контрольной сверки, затем ищем до 12 новых тиражей.
-  for (let id = Math.max(100_000, latestKnown - 2); id <= latestKnown + 12; id += 1) {
-    try {
-      const text = await fetchText(`${STOLOTO_ARCHIVE_URL}/${id}?_=${Date.now()}`, {
-        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
-        'Referer': `${STOLOTO_ARCHIVE_URL}/`
-      }, 25_000);
-      const parsed = parseStolotoText(text, id).find(draw => draw.id === id);
-      if (parsed) {
-        found.set(parsed.id, parsed);
-        consecutiveMisses = 0;
-      } else if (id > latestKnown) {
-        consecutiveMisses += 1;
-      }
-    } catch (error) {
-      errors.push(`№${id}: ${error?.message ?? error}`);
-      if (id > latestKnown) consecutiveMisses += 1;
-    }
-
-    // После двух будущих пустых страниц дальше тиражи ещё не состоялись.
-    if (id > latestKnown && consecutiveMisses >= 2) break;
-  }
-
-  try {
-    const draws = validateAgainstTrusted([...found.values()], reference);
-    return { draws, source: 'Столото — страницы тиражей' };
-  } catch (error) {
-    throw new Error(`${error.message}${errors.length ? `; ${errors.slice(0, 3).join('; ')}` : ''}`);
-  }
-}
-
-async function fetchLucky(reference) {
-  const stamp = Date.now();
-  const sources = [
-    {
-      name: 'Lucky Numbers напрямую',
-      url: `${LUCKY_URL}?top3_action=${stamp}`,
-      headers: { 'Accept': 'text/html,*/*;q=0.8' }
-    },
-    {
-      name: 'Lucky Numbers через Jina Reader',
-      url: `https://r.jina.ai/${LUCKY_URL}?top3_action=${stamp}`,
-      headers: { 'Accept': 'text/markdown,text/plain,*/*', 'X-No-Cache': 'true', 'X-Return-Format': 'markdown' }
-    }
-  ];
-
-  const settled = await Promise.allSettled(sources.map(async source => {
-    const text = await fetchText(source.url, source.headers);
-    const draws = validateAgainstTrusted(parseLuckyText(text), reference);
-    return { draws, source: source.name };
-  }));
-
-  const results = settled
-    .filter(item => item.status === 'fulfilled')
-    .map(item => item.value);
-  if (!results.length) {
-    const errors = settled
-      .filter(item => item.status === 'rejected')
-      .map(item => item.reason?.message ?? item.reason);
-    throw new Error(errors.join('; '));
-  }
-  return results.sort((a, b) => b.draws[0].id - a.draws[0].id)[0];
-}
-async function fetchLatest(reference) {
-  const latestKnown = uniqueDraws(reference)[0]?.id || 0;
-  const baseAttempts = [
-    ['Столото API', () => fetchOfficialApi(reference)],
-    ['Lucky Numbers', () => fetchLucky(reference)]
-  ];
-
-  const settled = await Promise.allSettled(baseAttempts.map(async ([label, load]) => {
-    const result = await load();
-    return { label, result };
-  }));
-
-  const successes = [];
-  const errors = [];
-  let officialApiSucceeded = false;
-
-  settled.forEach((item, index) => {
-    const label = baseAttempts[index][0];
-    if (item.status === 'fulfilled') {
-      const { result } = item.value;
-      successes.push(result);
-      if (label === 'Столото API') officialApiSucceeded = true;
-      console.log(`${label}: последний распознанный тираж №${result.draws[0].id}; строк ${result.draws.length}.`);
-    } else {
-      const message = item.reason?.message ?? item.reason;
-      errors.push(`${label}: ${message}`);
-      console.warn(`${label} недоступен: ${message}`);
-    }
-  });
-
-  const bestBaseLatest = successes.reduce((max, item) => Math.max(max, item.draws[0]?.id || 0), 0);
-
-  // Если официальный API недоступен, а Lucky не дал ничего новее уже сохранённого
-  // файла, проверяем персональные страницы следующих тиражей Столото.
-  if (!officialApiSucceeded && bestBaseLatest <= latestKnown) {
-    try {
-      const pages = await fetchOfficialPages(reference);
-      successes.push(pages);
-      console.log(`Столото страницы: последний распознанный тираж №${pages.draws[0].id}; строк ${pages.draws.length}.`);
-    } catch (error) {
-      errors.push(`Столото страницы: ${error?.message ?? error}`);
-      console.warn(`Столото страницы недоступны: ${error?.message ?? error}`);
-    }
-  }
-
-  if (!successes.length) throw new Error(errors.join('; '));
-
-  successes.sort((first, second) => {
-    const latestDifference = second.draws[0].id - first.draws[0].id;
-    return latestDifference || second.draws.length - first.draws.length;
-  });
-  return successes[0];
-}
-function sameDraws(first, second) {
-  return JSON.stringify(first) === JSON.stringify(second);
-}
+// ===== ОСНОВНАЯ БЕЗОПАСНАЯ ЗАПИСЬ =====
 
 async function main() {
-  const trusted = await readSeed();
-  const existing = await readExisting();
-  const reference = uniqueDraws([...existing.draws, ...trusted]);
-  const result = await fetchLatest(reference);
+  const live = JSON.parse(await fs.readFile(LIVE_FILE, 'utf8'));
+  const existing = dedupe(live.draws || []);
 
-  const map = new Map();
+  if (!existing.length) {
+    throw new Error('top3-live.json не содержит доверенных тиражей');
+  }
 
-  // Сначала кладём проверенную встроенную основу, затем существующий live-файл.
-  // Это запрещает откат: даже если внешний сайт задержался, уже сохранённые новые тиражи не исчезнут.
-  for (const draw of trusted.slice(0, 150)) map.set(draw.id, draw);
-  for (const draw of existing.draws) map.set(draw.id, draw);
-  for (const draw of result.draws) map.set(draw.id, draw);
+  const anchor = existing[0];
+  console.log(`Доверенный anchor: №${anchor.id} ${anchor.date} ${anchor.time}=${anchor.a}${anchor.b}${anchor.c}`);
 
-  const historyDraws = uniqueDraws([...trusted, ...existing.draws, ...result.draws]);
-  const draws = historyDraws.slice(0, 150);
-  if (draws.length < 3) throw new Error('после объединения осталось слишком мало тиражей');
+  const browser = await chromium.launch({ headless: true });
+  const passes = [];
 
-  // Прогноз рассчитывается и фиксируется на сервере сразу после последнего факта.
-  // Поэтому он сохраняется даже тогда, когда телефон и приложение закрыты.
-  const forecasts = ensureServerForecast(existing.forecasts, historyDraws);
-  const drawsChanged = !sameDraws(draws, existing.draws);
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      passes.push(await readArchivePass(browser, i));
+    }
+  } finally {
+    await browser.close();
+  }
+
+  if (!sameSnapshot(passes[0], passes[1]) || !sameSnapshot(passes[1], passes[2])) {
+    throw new Error('три независимых чтения Столото не совпали — запись запрещена');
+  }
+
+  const source = passes[0];
+  const sourceAnchor = source.find(d => d.id === anchor.id);
+
+  if (!sourceAnchor) {
+    throw new Error(`официальный архив не содержит доверенный anchor №${anchor.id}`);
+  }
+
+  if (drawKey(sourceAnchor) !== drawKey(anchor)) {
+    throw new Error(`anchor №${anchor.id} не совпал: ожидалось ${drawKey(anchor)}, получено ${drawKey(sourceAnchor)}`);
+  }
+
+  const existingMap = new Map(existing.map(d => [d.id, d]));
+  let overlap = 0;
+
+  for (const d of source) {
+    const old = existingMap.get(d.id);
+    if (!old) continue;
+    overlap += 1;
+
+    if (drawKey(old) !== drawKey(d)) {
+      throw new Error(`несовпадение сохранённого тиража №${d.id}`);
+    }
+  }
+
+  if (overlap < 3) {
+    throw new Error(`слишком мало подтверждённого пересечения с архивом: ${overlap}`);
+  }
+
+  const newer = source
+    .filter(d => d.id > anchor.id)
+    .sort((a, b) => a.id - b.id);
+
+  for (let i = 0; i < newer.length; i += 1) {
+    const expected = anchor.id + 1 + i;
+    if (newer[i].id !== expected) {
+      throw new Error(`разрыв номеров: ожидался №${expected}, получен №${newer[i].id}`);
+    }
+  }
+
+  let prev = anchor;
+  const slots = new Set(existing.slice(0, 40).map(d => `${d.date}|${d.time}`));
+
+  for (const d of newer) {
+    if (moscowStamp(d) <= moscowStamp(prev)) {
+      throw new Error(`нарушена хронология №${prev.id} -> №${d.id}`);
+    }
+
+    const slot = `${d.date}|${d.time}`;
+    if (slots.has(slot)) {
+      throw new Error(`повтор даты/времени ${slot}`);
+    }
+
+    slots.add(slot);
+    prev = d;
+  }
+
+  if (newer.length > 30) {
+    throw new Error(`слишком большой скачок: ${newer.length}`);
+  }
+
+  const history = dedupe([...source, ...existing]);
+  const merged = dedupe([...newer, ...existing]).slice(0, 150);
+  const forecasts = ensureServerForecast(live.forecasts || [], history);
+
+  const officialSource = 'Официальный Столото · OAuth · тройная проверка';
+  const sourceChanged = String(live.source || '') !== officialSource;
+  const drawsChanged = JSON.stringify(merged) !== JSON.stringify(existing);
   const forecastsChanged = JSON.stringify(forecasts) !== JSON.stringify(
-    (existing.forecasts || []).map(normalizeStoredForecast).filter(Boolean)
+    Array.isArray(live.forecasts)
+      ? live.forecasts.map(normalizeStoredForecast).filter(Boolean)
+      : []
   );
-  if (!drawsChanged && !forecastsChanged) {
-    console.log(`Новых тиражей нет. Прогноз на №${draws[0].id + 1} уже сохранён. Файл не изменён.`);
+
+  if (!drawsChanged && !forecastsChanged && !sourceChanged) {
+    console.log(`Новых подтверждённых тиражей нет. latest №${merged[0].id}.`);
     return;
   }
 
-  const payload = {
+  const output = {
+    ...live,
     schema: 3,
-    source: result.source,
+    source: officialSource,
     updatedAt: new Date().toISOString(),
-    latest: draws[0].id,
+    latest: merged[0].id,
     regularTimes: [...REGULAR_DRAW_TIMES],
     forecasts,
-    draws
+    draws: merged
   };
 
-  await fs.writeFile(LIVE_FILE, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  console.log(`Обновлён top3-live.json. Последний №${draws[0].id}; строк: ${draws.length}; прогнозов: ${forecasts.length}; источник: ${result.source}.`);
+  await fs.writeFile(LIVE_FILE, JSON.stringify(output, null, 2) + '\n', 'utf8');
+
+  console.log(
+    `ГОТОВО: добавлено ${newer.length}; latest №${merged[0].id}; прогнозов ${forecasts.length}; источник: ${officialSource}`
+  );
+
+  for (const d of newer) {
+    console.log(`№${d.id} ${d.date} ${d.time}=${d.a}${d.b}${d.c}`);
+  }
 }
 
-const isMain = process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url;
-if (isMain) {
-  main().catch(error => {
-    console.error(error);
-    process.exit(1);
-  });
-}
-
-export {
-  normalizeDate,
-  normalizeTime,
-  parseDateTime,
-  parseLuckyText,
-  parseStolotoJson,
-  parseStolotoText,
-  validateAgainstTrusted,
-  uniqueDraws,
-  buildServerForecast,
-  ensureServerForecast
-};
+main().catch(err => {
+  console.error('SAFE STOLOTO UPDATER ERROR:', err?.message || err);
+  process.exit(1);
+});
