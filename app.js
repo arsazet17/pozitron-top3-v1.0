@@ -1435,7 +1435,7 @@ function renderData() {
   $('dataLast').textContent = draws[0] ? `№ ${draws[0].id}` : '—';
   $('dbBadge').textContent = `${draws.length.toLocaleString('ru-RU')} тиражей`;
   $('dataSyncSummary').textContent = syncStatus.lastSuccess
-    ? `Последняя успешная проверка: ${formatDateTime(syncStatus.lastSuccess)}. Источник: ${syncStatus.source || 'Lucky Numbers'}. Сохранённые тиражи не заменяются.`
+    ? `Последняя успешная проверка: ${formatDateTime(syncStatus.lastSuccess)}. Источник: ${syncStatus.source || 'Столото'}. Сохранённые тиражи не заменяются.`
     : 'При открытии приложения и каждые 15 минут выполняется безопасная проверка. Уже сохранённые тиражи не заменяются.';
 }
 
@@ -1652,7 +1652,7 @@ function parseLuckyArchive(text) {
         if (isValidDraw(item) && DRAW_TIMES.includes(item.time)) found.set(item.id,item);
       }
     } catch (error) {
-      console.warn('Не удалось разобрать HTML Lucky Numbers', error);
+      console.warn('Не удалось разобрать HTML Столото', error);
     }
   }
 
@@ -1746,7 +1746,7 @@ async function checkOnlineDraws({ manual=false, silent=false }={}) {
   }
   syncInProgress=true;
   const attempt=new Date().toISOString();
-  saveSyncStatus({state:'checking',lastAttempt:attempt,message:'Соединяюсь с Lucky Numbers и проверяю последние тиражи…'});
+  saveSyncStatus({state:'checking',lastAttempt:attempt,message:'Соединяюсь с Столото и проверяю последние тиражи…'});
   try {
     if (!navigator.onLine) throw new Error('телефон сейчас без интернета');
     const result=await fetchLuckyDraws();
