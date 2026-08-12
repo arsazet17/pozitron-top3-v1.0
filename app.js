@@ -764,10 +764,21 @@ function archiveSavedForecastHtml(draw) {
   }
   const variants = (item.variants || []).filter(code => /^\d{3}$/.test(String(code))).slice(0,3);
   const actualCode = drawCode(draw);
-  const previous = previousOverallDraw(draw.id);
-  const actualDelta = previous ? codeOfDigits(positronDifference(previous, draw)) : '';
-  const predictedDeltas = [item.delta, ...(item.deltaVariants || [])].filter(Boolean);
-  const deltaHit = actualDelta && predictedDeltas.includes(actualDelta);
+  const previous = drawsForTime(draw.time).find(candidate => candidate.id < draw.id) || null;
+const actualDelta = previous ? codeOfDigits(positronDifference(previous, draw)) : '';
+const predictedDeltas = [...new Set(
+  [item.delta, ...(item.deltaVariants || [])]
+    .map(value => String(value || ''))
+    .filter(value => /^\d{3}$/.test(value))
+)].slice(0, 3);
+const deltaHitIndex = actualDelta ? predictedDeltas.indexOf(actualDelta) : -1;
+const deltaHit = deltaHitIndex >= 0;
+const predictedDeltaText = predictedDeltas.length
+  ? predictedDeltas.map(value => `+${value}`).join(' / ')
+  : '—';
+const deltaResultText = deltaHit
+  ? `совпала, вариант ${deltaHitIndex + 1}`
+  : 'не совпала';
   const variantRows = variants.map((variant,index) => {
     const info = forecastHitInfo(variant, actualCode);
     let result = 'нет совпадений';
@@ -782,8 +793,8 @@ function archiveSavedForecastHtml(draw) {
   return `<section class="archive-saved-forecast">
     <span class="eyebrow">ПРОГНОЗ, СОХРАНЁННЫЙ ДО ТИРАЖА №${draw.id}</span>
     <div class="archive-forecast-summary">
-      <div><span>Предполагаемая разница</span><strong>+${item.delta || '—'}</strong></div>
-      <div><span>Фактическая разница</span><strong class="${deltaHit ? 'delta-hit' : ''}">${actualDelta ? `+${actualDelta}` : '—'}</strong><small>${deltaHit ? 'совпала' : 'не совпала'}</small></div>
+      <div><span>Предполагаемые разницы</span><strong>${predictedDeltaText}</strong></div>
+      <div><span>Фактическая разница</span><strong class="${deltaHit ? 'delta-hit' : ''}">${actualDelta ? `+${actualDelta}` : '—'}</strong><small>${deltaResultText}</small></div>
       <div><span>Факт</span><strong>${actualCode}</strong></div>
     </div>
     <div class="archive-forecast-variants">${variantRows}</div>
