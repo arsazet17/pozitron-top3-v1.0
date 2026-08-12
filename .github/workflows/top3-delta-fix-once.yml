@@ -1,0 +1,115 @@
+name: TOP3 Delta Fix Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/top3-delta-fix-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: top3-delta-fix-once
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Исправить проверку сохранённого прогноза
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app.js')
+          text = path.read_text(encoding='utf-8')
+
+          logic_pattern = re.compile(
+              r"  const previous = previousOverallDraw\(draw\.id\);\n"
+              r"  const actualDelta = previous \? codeOfDigits\(positronDifference\(previous, draw\)\) : '';\n"
+              r"  const predictedDeltas = \[item\.delta, \.\.\.\(item\.deltaVariants \|\| \[\]\)\]\.filter\(Boolean\);\n"
+              r"  const deltaHit = actualDelta && predictedDeltas\.includes\(actualDelta\);"
+          )
+
+          new_logic = """  const previous = drawsForTime(draw.time).find(candidate => candidate.id < draw.id) || null;
+          const actualDelta = previous ? codeOfDigits(positronDifference(previous, draw)) : '';
+          const predictedDeltas = [...new Set(
+            [item.delta, ...(item.deltaVariants || [])]
+              .map(value => String(value || ''))
+              .filter(value => /^\\d{3}$/.test(value))
+          )].slice(0, 3);
+          const deltaHitIndex = actualDelta ? predictedDeltas.indexOf(actualDelta) : -1;
+          const deltaHit = deltaHitIndex >= 0;
+          const predictedDeltaText = predictedDeltas.length
+            ? predictedDeltas.map(value => `+${value}`).join(' / ')
+            : '—';
+          const deltaResultText = deltaHit
+            ? `совпала, вариант ${deltaHitIndex + 1}`
+            : 'не совпала';"""
+
+          html_pattern = re.compile(
+              r"<div><span>Предполагаемая разница</span><strong>\+\$\{item\.delta \|\| '—'\}</strong></div>\s*"
+              r"<div><span>Фактическая разница</span><strong class=\"\$\{deltaHit \? 'delta-hit' : ''\}\">\$\{actualDelta \? `\+\$\{actualDelta\}` : '—'\}</strong><small>\$\{deltaHit \? 'совпала' : 'не совпала'\}</small></div>"
+          )
+
+          new_html = """<div><span>Предполагаемые разницы</span><strong>${predictedDeltaText}</strong></div>
+                <div><span>Фактическая разница</span><strong class="${deltaHit ? 'delta-hit' : ''}">${actualDelta ? `+${actualDelta}` : '—'}</strong><small>${deltaResultText}</small></div>"""
+
+          logic_matches = len(logic_pattern.findall(text))
+          html_matches = len(html_pattern.findall(text))
+
+          if logic_matches != 1:
+              raise SystemExit(f'FAIL: блок логики найден {logic_matches} раз вместо 1 — app.js не изменён')
+          if html_matches != 1:
+              raise SystemExit(f'FAIL: блок отображения найден {html_matches} раз вместо 1 — app.js не изменён')
+
+          text = logic_pattern.sub(lambda _: new_logic, text, count=1)
+          text = html_pattern.sub(lambda _: new_html, text, count=1)
+
+          path.write_text(text, encoding='utf-8')
+          print('PATCH OK: предыдущий тираж того же времени + все 3 сохранённые Δ')
+          PY
+
+      - name: Проверить синтаксис app.js
+        run: node --check app.js
+
+      - name: Контроль №267483
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const mod10 = value => ((Number(value) % 10) + 10) % 10;
+          const delta = (from, to) => to.map((value, index) => mod10(value - from[index])).join('');
+          const actual = delta([9,1,5], [6,1,6]);
+          const saved = ['837','440','776'];
+          if (actual !== '701') throw new Error(`Ожидалась фактическая Δ 701, получена ${actual}`);
+          if (saved.includes(actual)) throw new Error('Δ 701 ошибочно отмечена как совпадение');
+          console.log('OK: 915 → 616 = +701; +837 / +440 / +776 → не совпала');
+          NODE
+
+      - name: Проверить, что изменён только app.js
+        shell: bash
+        run: |
+          CHANGED="$(git diff --name-only)"
+          echo "$CHANGED"
+          test "$CHANGED" = "app.js"
+
+      - name: Сохранить исправленный app.js
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js
+          git commit -m "TOP3: fix saved forecast delta verification"
+          git pull --rebase origin main
+          git push
