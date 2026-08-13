@@ -2,8 +2,6 @@ name: TOP-3 Stoloto backup updater
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '7,17,27,37,47,57 * * * *'
 
 permissions:
   contents: write
@@ -16,7 +14,6 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,49 +23,33 @@ jobs:
         with:
           node-version: 22
 
-      - name: Switch Stoloto verification to double
+      - name: Permanently switch updater to double verification
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path("update-top3.mjs")
-          s = p.read_text(encoding="utf-8")
-          old = s
-          s = s.replace(
-              "for (let i = 1; i <= 3; i += 1) {",
-              "for (let i = 1; i <= 2; i += 1) {"
-          )
-          s = s.replace(
-              "if (!sameSnapshot(passes[0], passes[1]) || !sameSnapshot(passes[1], passes[2])) {",
-              "if (!sameSnapshot(passes[0], passes[1])) {"
-          )
-          s = s.replace(
-              "throw new Error('три независимых чтения Столото не совпали — запись запрещена');",
-              "throw new Error('два независимых чтения Столото не совпали — запись запрещена');"
-          )
-          s = s.replace(
-              "Официальный Столото · OAuth · тройная проверка",
-              "Официальный Столото · OAuth · двойная проверка"
-          )
-          if s == old:
-              print("Updater already patched or expected markers not found")
-          else:
-              p.write_text(s, encoding="utf-8")
-              print("Updater switched to DOUBLE verification")
-          PY
+          python patch-update-top3-double.py
+          if git diff --quiet -- update-top3.mjs; then
+            echo "Updater already uses double verification"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add update-top3.mjs
+            git commit -m "TOP3: permanent double Stoloto verification"
+            git push origin HEAD:main
+          fi
 
       - name: Install Chromium
         run: |
           npm install --no-save playwright@1.54.2
           npx playwright install --with-deps chromium
 
-      - name: Backup update from official Stoloto
+      - name: Update from official Stoloto
         env:
           STOLOTO_EMAIL: ${{ secrets.STOLOTO_EMAIL }}
           STOLOTO_PASSWORD: ${{ secrets.STOLOTO_PASSWORD }}
         run: node update-top3.mjs
 
       - name: Commit verified live data
+        shell: bash
         run: |
           if git diff --quiet -- top3-live.json; then
             echo "Нет новых подтверждённых тиражей"
@@ -77,6 +58,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add top3-live.json
-          git commit -m "TOP3: update from verified Stoloto OAuth · double (backup)"
-          git pull --rebase origin main
+          git commit -m "TOP3: update from verified Stoloto OAuth · double"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
