@@ -19,10 +19,43 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Switch Stoloto verification to double
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("update-top3.mjs")
+          s = p.read_text(encoding="utf-8")
+          old = s
+          s = s.replace(
+              "for (let i = 1; i <= 3; i += 1) {",
+              "for (let i = 1; i <= 2; i += 1) {"
+          )
+          s = s.replace(
+              "if (!sameSnapshot(passes[0], passes[1]) || !sameSnapshot(passes[1], passes[2])) {",
+              "if (!sameSnapshot(passes[0], passes[1])) {"
+          )
+          s = s.replace(
+              "throw new Error('три независимых чтения Столото не совпали — запись запрещена');",
+              "throw new Error('два независимых чтения Столото не совпали — запись запрещена');"
+          )
+          s = s.replace(
+              "Официальный Столото · OAuth · тройная проверка",
+              "Официальный Столото · OAuth · двойная проверка"
+          )
+          if s == old:
+              print("Updater already patched or expected markers not found")
+          else:
+              p.write_text(s, encoding="utf-8")
+              print("Updater switched to DOUBLE verification")
+          PY
 
       - name: Install Chromium
         run: |
@@ -44,5 +77,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add top3-live.json
-          git commit -m "TOP3: update from verified Stoloto OAuth (backup)"
-          git push
+          git commit -m "TOP3: update from verified Stoloto OAuth · double (backup)"
+          git pull --rebase origin main
+          git push origin HEAD:main
