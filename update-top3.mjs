@@ -634,15 +634,15 @@ async function main() {
   const passes = [];
 
   try {
-    for (let i = 1; i <= 3; i += 1) {
+    for (let i = 1; i <= 2; i += 1) {
       passes.push(await readArchivePass(browser, i));
     }
   } finally {
     await browser.close();
   }
 
-  if (!sameSnapshot(passes[0], passes[1]) || !sameSnapshot(passes[1], passes[2])) {
-    throw new Error('три независимых чтения Столото не совпали — запись запрещена');
+  if (!sameSnapshot(passes[0], passes[1])) {
+    throw new Error('два независимых чтения Столото не совпали — запись запрещена');
   }
 
   const source = passes[0];
@@ -709,7 +709,7 @@ async function main() {
   const merged = dedupe([...newer, ...existing]).slice(0, 150);
   const forecasts = ensureServerForecast(live.forecasts || [], history);
 
-  const officialSource = 'Официальный Столото · OAuth · тройная проверка';
+  const officialSource = 'Официальный Столото · OAuth · двойная проверка';
   const sourceChanged = String(live.source || '') !== officialSource;
   const drawsChanged = JSON.stringify(merged) !== JSON.stringify(existing);
   const forecastsChanged = JSON.stringify(forecasts) !== JSON.stringify(
