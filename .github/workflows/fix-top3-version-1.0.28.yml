@@ -1,0 +1,134 @@
+name: Fix Yulia TOP-3 v1.0.28 version
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-top3-version-1.0.28.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yulia-top3-version-fix
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fix APP_VERSION and force fresh assets
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, re
+
+          VERSION = "1.0.28"
+          CACHE = "1.0.28-fix1"
+
+          app_path = Path("app.js")
+          index_path = Path("index.html")
+          manifest_path = Path("manifest.webmanifest")
+
+          app = app_path.read_text(encoding="utf-8")
+          app, n = re.subn(
+              r"const APP_VERSION\s*=\s*'[^']+';",
+              f"const APP_VERSION = '{VERSION}';",
+              app,
+              count=1,
+          )
+          if n != 1:
+              raise SystemExit("APP_VERSION не найден в app.js")
+          app_path.write_text(app, encoding="utf-8")
+
+          html = index_path.read_text(encoding="utf-8")
+          html = re.sub(
+              r"<title>Yulia TOP-3 v[\d.]+([^<]*)</title>",
+              rf"<title>Yulia TOP-3 v{VERSION}\1</title>",
+              html,
+              count=1,
+          )
+          html = re.sub(
+              r"window\.TOP3_BUILD\s*=\s*'[^']+';",
+              f"window.TOP3_BUILD = '{VERSION}';",
+              html,
+              count=1,
+          )
+          html = re.sub(
+              r'<span class="version">v[\d.]+</span>',
+              f'<span class="version">v{VERSION}</span>',
+              html,
+              count=1,
+          )
+          html = re.sub(
+              r'app\.js\?v=[^"]+',
+              f'app.js?v={CACHE}',
+              html,
+          )
+          html = re.sub(
+              r'mirror-method\.js\?v=[^"]+',
+              f'mirror-method.js?v={CACHE}',
+              html,
+          )
+          html = re.sub(
+              r'mirror-method\.css\?v=[^"]+',
+              f'mirror-method.css?v={CACHE}',
+              html,
+          )
+          html = re.sub(
+              r'styles\.css\?v=[^"]+',
+              f'styles.css?v={CACHE}',
+              html,
+          )
+          index_path.write_text(html, encoding="utf-8")
+
+          if manifest_path.exists():
+              manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+              manifest["start_url"] = f"./?v={CACHE}"
+              manifest_path.write_text(
+                  json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+
+          print("APP_VERSION ->", VERSION)
+          print("asset cache key ->", CACHE)
+
+      - name: Verify JavaScript
+        run: |
+          node --check app.js
+          node --check mirror-method.js
+          node mirror-method-test.mjs
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          if git diff --quiet -- app.js index.html manifest.webmanifest; then
+            echo "Version fix already applied."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js index.html manifest.webmanifest
+          git commit -m "TOP3: fix displayed v1.0.28 and refresh assets"
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 3))
+          done
+
+          exit 1
