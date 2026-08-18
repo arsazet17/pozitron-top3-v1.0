@@ -1,0 +1,50 @@
+name: TOP-3 history bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'persist-top3-history.mjs'
+      - '.github/workflows/update-top3.yml'
+      - '.github/workflows/update-top3-backup.yml'
+      - '.github/workflows/top3-history-bootstrap.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yulia-top3-stoloto-oauth
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Restore complete TOP-3 live history
+        run: node persist-top3-history.mjs
+
+      - name: Commit repaired live history
+        shell: bash
+        run: |
+          if git diff --quiet -- top3-live.json top3-history.json; then
+            echo "История уже восстановлена"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add top3-live.json top3-history.json
+          git commit -m "TOP3: restore continuous live history"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
