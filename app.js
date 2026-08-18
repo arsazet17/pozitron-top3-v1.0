@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.28';
+const APP_VERSION = '1.0.29';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -37,7 +37,8 @@ const VERIFIED_CORRECTIONS = [
   // точечного возврата записей, которые успел исказить старый общий файл.
   { id:267356, date:'30.07.26', time:'09:40', a:8, b:8, c:3 },
   { id:267355, date:'30.07.26', time:'07:40', a:6, b:3, c:8 },
-  { id:267354, date:'30.07.26', time:'06:40', a:0, b:3, c:9 }
+  { id:267354, date:'30.07.26', time:'06:40', a:0, b:3, c:9 },
+  { id:267486, date:'12.08.26', time:'09:40', a:6, b:3, c:8 }
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -1720,6 +1721,45 @@ function sameDraw(a,b) {
     && a.c === b.c;
 }
 
+
+function isVerifiedOfficialSource(source) {
+  return /^Официальный Столото · OAuth · (двойная|тройная) проверка$/.test(String(source || '').trim());
+}
+
+async function repairVerifiedOnlineOverlap(items, source) {
+  if (!isVerifiedOfficialSource(source) || !db || !storageReady || !Array.isArray(items)) return 0;
+
+  const valid = items.filter(draw => isValidDraw(draw) && DRAW_TIMES.includes(draw.time));
+  const localById = new Map(draws.map(draw => [draw.id, draw]));
+  const overlap = valid.filter(draw => localById.has(draw.id));
+
+  // Автокоррекция разрешена только если большая часть контрольной зоны
+  // уже подтверждена локальной базой и источник — официальный OAuth-файл.
+  if (overlap.length < 10) return 0;
+
+  const exactMatches = overlap.filter(draw => sameDraw(draw, localById.get(draw.id)));
+  const mismatches = overlap.filter(draw => !sameDraw(draw, localById.get(draw.id)));
+
+  if (!mismatches.length) return 0;
+  if (exactMatches.length < 10 || mismatches.length > 5) return 0;
+
+  const tx = db.transaction(STORE, 'readwrite');
+  const store = tx.objectStore(STORE);
+  for (const draw of mismatches) {
+    store.put({
+      id: Number(draw.id),
+      date: String(draw.date),
+      time: String(draw.time),
+      a: Number(draw.a),
+      b: Number(draw.b),
+      c: Number(draw.c)
+    });
+  }
+  await withTimeout(txDone(tx), 6000, 'Исправление проверенных онлайн-тиражей');
+  await loadAllDraws();
+  return mismatches.length;
+}
+
 function validateOnlineBatch(items) {
   if (!Array.isArray(items) || !items.length) throw new Error('пустой ответ источника');
   const valid = items.filter(draw => isValidDraw(draw) && DRAW_TIMES.includes(draw.time));
@@ -1761,13 +1801,14 @@ async function checkOnlineDraws({ manual=false, silent=false }={}) {
   try {
     if (!navigator.onLine) throw new Error('телефон сейчас без интернета');
     const result=await fetchLuckyDraws();
+    const repaired=await repairVerifiedOnlineOverlap(result.items,result.source);
     const items=validateOnlineBatch(result.items);
     const sourceLatest=Math.max(...items.map(d=>d.id));
     // Серверный прогноз импортируется раньше факта. Поэтому даже при закрытом приложении
     // он уже лежит в top3-live.json и потом честно показывается в архиве.
     const importedForecasts=mergeServerForecasts(result.forecasts);
     const {added}=await addNewDrawsOnly(items);
-    if (added) await refreshFromDB();
+    if (added || repaired) await refreshFromDB();
     else if (importedForecasts) {
       renderHome();
       renderArchive(true);
