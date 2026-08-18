@@ -2,7 +2,7 @@
   "name": "Yulia TOP-3",
   "short_name": "TOP-3",
   "description": "TOP-3: архивы, разницы Позитронов, зеркала, ИИ и метод Юлии «Зеркало и прибавление · 15 тиражей».",
-  "start_url": "./?v=1.0.28",
+  "start_url": "./?v=1.0.28-fix1",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
