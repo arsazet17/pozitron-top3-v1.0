@@ -1,8 +1,8 @@
 {
   "schema": 3,
   "source": "Официальный Столото · OAuth · двойная проверка",
-  "updatedAt": "2026-08-20T08:31:35.179Z",
-  "latest": 267565,
+  "updatedAt": "2026-08-20T09:01:31.712Z",
+  "latest": 267566,
   "regularTimes": [
     "02:40",
     "04:40",
@@ -3667,9 +3667,39 @@
         "777",
         "596"
       ]
+    },
+    {
+      "id": "server-auto-267567",
+      "automatic": true,
+      "server": true,
+      "createdAt": "2026-08-20T09:01:31.707Z",
+      "targetId": 267567,
+      "targetDate": "20.08.26",
+      "targetTime": "13:40",
+      "baseId": 267557,
+      "baseCode": "877",
+      "delta": "786",
+      "deltaVariants": [
+        "786",
+        "865",
+        "044"
+      ],
+      "variants": [
+        "553",
+        "632",
+        "811"
+      ]
     }
   ],
   "draws": [
+    {
+      "id": 267566,
+      "date": "20.08.26",
+      "time": "11:40",
+      "a": 0,
+      "b": 8,
+      "c": 2
+    },
     {
       "id": 267565,
       "date": "20.08.26",
