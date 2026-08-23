@@ -1,5 +1,5 @@
 // TOP-3 storage patch: IndexedDB instead of localStorage
-// Version: 1.0.0
+// Version: 1.0.1
 //
 // Drop this file into the repository and load it BEFORE the main app script.
 //
@@ -232,4 +232,5 @@
 
   // Try migration immediately, but don't block app startup.
   migrateFromLocalStorage(DEFAULT_KEY).catch(() => {});
+  migrateFromLocalStorage('yulia-top3-forecast-archive-v2-auto').catch(() => {});
 })();

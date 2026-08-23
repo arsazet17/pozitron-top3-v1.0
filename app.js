@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.29';
+const APP_VERSION = '1.0.30';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -30,7 +30,7 @@ let archiveTime = '13:40';
 let archiveSearchScope = 'selected';
 let aiSelectedTime = 'all';
 let aiCache = new Map();
-let forecastArchive = loadForecastArchive();
+let forecastArchive = [];
 
 const VERIFIED_CORRECTIONS = [
   // Эти строки уже есть во встроенном архиве и используются только для
@@ -1254,15 +1254,48 @@ function normalizeForecastCode(value) {
   return compact.length === 3 ? compact : '';
 }
 
-function loadForecastArchive() {
+async function loadForecastArchive() {
+  // Большой архив прогнозов больше не держим в localStorage.
+  // IndexedDB имеет существенно больший лимит и подходит для архивов.
   try {
-    const value = JSON.parse(localStorage.getItem(FORECAST_ARCHIVE_KEY) || '[]');
-    return Array.isArray(value) ? value : [];
-  } catch { return []; }
+    if (window.Top3Storage) {
+      const value = await Top3Storage.get(FORECAST_ARCHIVE_KEY);
+      if (Array.isArray(value)) return value;
+
+      // Миграция со старой версии localStorage -> IndexedDB.
+      const raw = localStorage.getItem(FORECAST_ARCHIVE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          await Top3Storage.set(FORECAST_ARCHIVE_KEY, parsed);
+          localStorage.removeItem(FORECAST_ARCHIVE_KEY);
+          return parsed;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Не удалось загрузить архив прогнозов из IndexedDB:', error);
+  }
+  return [];
 }
 
-function saveForecastArchive() {
-  try { localStorage.setItem(FORECAST_ARCHIVE_KEY, JSON.stringify(forecastArchive)); } catch {}
+async function saveForecastArchive() {
+  try {
+    if (!window.Top3Storage) throw new Error('Top3Storage не загружен');
+    await Top3Storage.set(FORECAST_ARCHIVE_KEY, forecastArchive);
+    // На всякий случай удаляем старую тяжёлую копию.
+    try { localStorage.removeItem(FORECAST_ARCHIVE_KEY); } catch {}
+  } catch (error) {
+    console.warn('Не удалось сохранить архив прогнозов в IndexedDB:', error);
+  }
+}
+
+async function hydrateForecastArchive() {
+  const loaded = await loadForecastArchive();
+  if (Array.isArray(loaded)) {
+    forecastArchive = loaded;
+    try { renderForecastArchive(); } catch {}
+  }
 }
 
 function normalizeServerForecast(raw) {
@@ -2053,6 +2086,16 @@ async function initializeStorage() {
 }
 
 function start() {
+  // Удаляем старый раздутый ключ, из-за которого прежняя версия могла падать
+  // с ошибкой "exceeded the quota". Его содержимое helper пытается мигрировать
+  // в IndexedDB ещё при загрузке страницы.
+  try {
+    if (window.Top3Storage) {
+      Top3Storage.migrateFromLocalStorage('top3-auto-state-v1').catch(()=>{});
+      Top3Storage.migrateFromLocalStorage(FORECAST_ARCHIVE_KEY).catch(()=>{});
+    }
+  } catch {}
+
   try {
     const savedMode = localStorage.getItem(ARCHIVE_MODE_KEY);
     const savedArchiveTime = localStorage.getItem(ARCHIVE_TIME_KEY);
@@ -2081,6 +2124,9 @@ function start() {
   renderAll();
   hideLoadingOverlay();
   setUpdateButtonsReady();
+
+  // Архив прогнозов подгружается отдельно из IndexedDB и не блокирует интерфейс.
+  hydrateForecastArchive().catch(error => console.warn('Архив прогнозов не загружен:', error));
 
   initializeStorage();
 
