@@ -1,10 +1,18 @@
 {
   "schema": 2,
   "source": "TOP-3 permanent verified history",
-  "updatedAt": "2026-08-31T18:01:31.810Z",
-  "latest": 267678,
+  "updatedAt": "2026-08-31T18:31:21.729Z",
+  "latest": 267679,
   "anchorFrom": 267354,
   "draws": [
+    {
+      "id": 267679,
+      "date": "31.08.26",
+      "time": "21:25",
+      "a": 3,
+      "b": 5,
+      "c": 1
+    },
     {
       "id": 267678,
       "date": "31.08.26",
