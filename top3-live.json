@@ -1,8 +1,8 @@
 {
   "schema": 3,
   "source": "Официальный Столото · OAuth · двойная проверка",
-  "updatedAt": "2026-09-05T06:31:21.348Z",
-  "latest": 267723,
+  "updatedAt": "2026-09-05T07:01:33.708Z",
+  "latest": 267724,
   "regularTimes": [
     "02:40",
     "04:40",
@@ -16,28 +16,6 @@
     "22:40"
   ],
   "forecasts": [
-    {
-      "id": "server-auto-267485",
-      "automatic": true,
-      "server": true,
-      "createdAt": "2026-08-12T04:30:52.607Z",
-      "targetId": 267485,
-      "targetDate": "12.08.26",
-      "targetTime": "07:40",
-      "baseId": 267475,
-      "baseCode": "465",
-      "delta": "598",
-      "deltaVariants": [
-        "598",
-        "612",
-        "247"
-      ],
-      "variants": [
-        "953",
-        "077",
-        "602"
-      ]
-    },
     {
       "id": "server-auto-267486",
       "automatic": true,
@@ -5295,9 +5273,39 @@
         "973",
         "641"
       ]
+    },
+    {
+      "id": "server-auto-267725",
+      "automatic": true,
+      "server": true,
+      "createdAt": "2026-09-05T07:01:33.705Z",
+      "targetId": 267725,
+      "targetDate": "05.09.26",
+      "targetTime": "11:40",
+      "baseId": 267715,
+      "baseCode": "338",
+      "delta": "967",
+      "deltaVariants": [
+        "967",
+        "818",
+        "341"
+      ],
+      "variants": [
+        "295",
+        "146",
+        "679"
+      ]
     }
   ],
   "draws": [
+    {
+      "id": 267724,
+      "date": "05.09.26",
+      "time": "09:40",
+      "a": 9,
+      "b": 6,
+      "c": 9
+    },
     {
       "id": 267723,
       "date": "05.09.26",
