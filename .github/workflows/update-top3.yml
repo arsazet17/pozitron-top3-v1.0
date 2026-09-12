@@ -2,18 +2,24 @@ name: Update TOP-3 from Stoloto
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '28,58 * * * *'
+  push:
+    paths:
+      - 'update-top3-api.mjs'
+      - '.github/workflows/update-top3.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: yulia-top3-stoloto-oauth
+  group: yulia-top3-stoloto-api
   cancel-in-progress: false
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,32 +29,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Permanently switch updater to double verification
-        shell: bash
-        run: |
-          python patch-update-top3-double.py
-          if git diff --quiet -- update-top3.mjs; then
-            echo "Updater already uses double verification"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add update-top3.mjs
-            git commit -m "TOP3: permanent double Stoloto verification"
-            git push origin HEAD:main
-          fi
+      - name: Update from official Stoloto API
+        run: node update-top3-api.mjs
 
-      - name: Install Chromium
-        run: |
-          npm install --no-save playwright@1.54.2
-          npx playwright install --with-deps chromium
-
-      - name: Update from official Stoloto
-        env:
-          STOLOTO_EMAIL: ${{ secrets.STOLOTO_EMAIL }}
-          STOLOTO_PASSWORD: ${{ secrets.STOLOTO_PASSWORD }}
-        run: node update-top3.mjs
-
-      - name: Restore permanent live history
+      - name: Merge into permanent history
         run: node persist-top3-history.mjs
 
       - name: Commit verified live data
@@ -61,7 +45,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add top3-live.json top3-history.json
-          git commit -m "TOP3: update verified live data + permanent history"
+          git commit -m "TOP3: auto-update from official Stoloto API"
           git fetch origin main
           git rebase origin/main
           git push origin HEAD:main
