@@ -3,7 +3,7 @@ name: Update TOP-3 from Stoloto
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0,30 * * * *'
+    - cron: '5,35 * * * *'
   push:
     paths:
       - 'update-top3-api.mjs'
