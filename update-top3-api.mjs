@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 const LIVE_FILE = new URL('./top3-live.json', import.meta.url);
 const ARCHIVE_API = 'https://m.stoloto.ru/p/api/mobile/api/v35/service/draws/archive';
 const INFO_API = 'https://m.stoloto.ru/p/api/mobile/api/v35/service/games/info-new';
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 30;
 const MAX_PAGES = 20;
 const KEEP_LIVE = 200;
 
@@ -16,7 +16,7 @@ const REGULAR_DRAW_TIMES = new Set(Array.from({ length: 48 }, (_, index) => {
 
 const HEADERS = {
   accept: 'application/json',
-  'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/152 Safari/537.36'
+  'user-agent': 'Mozilla/5.0'
 };
 
 function validDate(s) {
@@ -91,7 +91,7 @@ function dedupe(draws) {
 }
 
 async function getJson(url) {
-  const r = await fetch(url, { headers: HEADERS, cache: 'no-store' });
+  const r = await fetch(url, { headers: HEADERS });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${url}`);
   return r.json();
 }
@@ -107,7 +107,7 @@ async function fetchOfficialLatest() {
 async function fetchArchiveSince(localLatest) {
   const out = [];
   for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const url = `${ARCHIVE_API}?game=top3&count=${PAGE_SIZE}&page=${page}&_=${Date.now()}`;
+    const url = `${ARCHIVE_API}?game=top3&count=${PAGE_SIZE}&page=${page}`;
     const j = await getJson(url);
     const rows = (j?.draws || []).map(apiDrawToRow).filter(Boolean);
     if (!rows.length) break;
