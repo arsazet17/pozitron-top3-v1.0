@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='1.2.0';
+const APP_VERSION='1.2.1';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -19,7 +19,7 @@ const AI_TIME_KEY = 'yulia-top3-ai-time-v2';
 const ANALYSIS_RANGE_KEY = 'yulia-top3-analysis-range-v2';
 const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v2-auto';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
-const LIVE_DATA_URL = './top3-history.json';
+const LIVE_DATA_URL = 'https://raw.githubusercontent.com/arsazet17/pozitron-top3-v1.0/main/top3-history.json';
 
 let db;
 let draws = [];
