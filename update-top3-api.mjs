@@ -2,15 +2,15 @@ import fs from 'node:fs/promises';
 
 const LIVE_FILE = new URL('./top3-live.json', import.meta.url);
 const API_ROOTS = [
-  'https://www.stoloto.ru/p/api/mobile/api/v35/service',
-  'https://m.stoloto.ru/p/api/mobile/api/v35/service'
+  'https://m.stoloto.ru/p/api/mobile/api/v35/service',
+  'https://www.stoloto.ru/p/api/mobile/api/v35/service'
 ];
 const INFO_URLS = API_ROOTS.map(root => `${root}/games/info-new`);
 const ARCHIVE_GAMES = ['top-3', 'top3'];
 const PAGE_SIZE = 30;
 const MAX_PAGES = 20;
 const KEEP_LIVE = 200;
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 15000;
 
 const REGULAR_DRAW_TIMES = new Set(Array.from({ length: 48 }, (_, index) => {
   const totalMinutes = 25 + index * 30;
@@ -20,8 +20,10 @@ const REGULAR_DRAW_TIMES = new Set(Array.from({ length: 48 }, (_, index) => {
 }));
 
 const HEADERS = {
-  accept: 'application/json',
-  'user-agent': 'Mozilla/5.0 (compatible; Yulia-TOP3-Updater/1.3)'
+  accept: 'application/json, text/plain, */*',
+  'accept-language': 'ru-RU,ru;q=0.9,en;q=0.7',
+  referer: 'https://m.stoloto.ru/',
+  'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36'
 };
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -95,60 +97,63 @@ function dedupe(draws) {
 }
 
 async function getJson(url, timeoutMs = REQUEST_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`, {
-      headers: HEADERS,
-      signal: controller.signal,
-      cache: 'no-store'
-    });
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    return await r.json();
-  } catch (error) {
-    const reason = error?.name === 'AbortError' ? `timeout ${timeoutMs}ms` : (error?.message || String(error));
-    throw new Error(`${reason}: ${url}`);
-  } finally {
-    clearTimeout(timer);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, {
+        headers: HEADERS,
+        signal: controller.signal,
+        redirect: 'follow'
+      });
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return await r.json();
+    } catch (error) {
+      const reason = error?.name === 'AbortError' ? `timeout ${timeoutMs}ms` : (error?.message || String(error));
+      lastError = new Error(`${reason}: ${url}`);
+      if (attempt < 3) await sleep(900 * attempt);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError || new Error(`не удалось получить ${url}`);
 }
 
 async function fetchOfficialLatest() {
-  const settled = await Promise.allSettled(INFO_URLS.map(url => getJson(url)));
   const rows = [];
   const errors = [];
-  for (let i = 0; i < settled.length; i += 1) {
-    const result = settled[i];
-    if (result.status === 'rejected') {
-      errors.push(result.reason?.message || String(result.reason));
-      continue;
+  for (const url of INFO_URLS) {
+    try {
+      const j = await getJson(url);
+      const game = (j?.games || []).find(x => x?.name === 'top-3');
+      const row = completedToRow(game?.completedDraw);
+      if (row) rows.push(row);
+      else errors.push(`${url}: нет корректного completedDraw top-3`);
+    } catch (error) {
+      errors.push(error?.message || String(error));
     }
-    const game = (result.value?.games || []).find(x => x?.name === 'top-3');
-    const row = completedToRow(game?.completedDraw);
-    if (row) rows.push(row);
   }
-  if (!rows.length) throw new Error(`games/info-new недоступен на обоих хостах: ${errors.join(' | ') || 'нет корректного completedDraw'}`);
+  if (!rows.length) throw new Error(`games/info-new недоступен: ${errors.join(' | ')}`);
   return rows.sort((a, b) => b.id - a.id)[0];
 }
 
 async function fetchArchivePage(page) {
-  const requests = [];
+  const candidates = [];
+  const errors = [];
   for (const root of API_ROOTS) {
     for (const game of ARCHIVE_GAMES) {
       const url = `${root}/draws/archive?game=${encodeURIComponent(game)}&count=${PAGE_SIZE}&page=${page}`;
-      requests.push({ url, promise: getJson(url) });
+      try {
+        const j = await getJson(url);
+        const rows = dedupe((j?.draws || []).map(apiDrawToRow).filter(Boolean));
+        if (rows.length) candidates.push({ rows, url });
+      } catch (error) {
+        errors.push(error?.message || String(error));
+      }
     }
   }
-
-  const settled = await Promise.allSettled(requests.map(x => x.promise));
-  const candidates = [];
-  for (let i = 0; i < settled.length; i += 1) {
-    const result = settled[i];
-    if (result.status !== 'fulfilled') continue;
-    const rows = dedupe((result.value?.draws || []).map(apiDrawToRow).filter(Boolean));
-    if (rows.length) candidates.push({ rows, url: requests[i].url });
-  }
-  if (!candidates.length) throw new Error(`официальный архив недоступен/пуст на странице ${page}`);
+  if (!candidates.length) throw new Error(`официальный архив недоступен/пуст на странице ${page}: ${errors.join(' | ')}`);
   candidates.sort((a, b) => (b.rows[0]?.id || 0) - (a.rows[0]?.id || 0) || b.rows.length - a.rows.length);
   return candidates[0];
 }
@@ -168,7 +173,7 @@ async function fetchArchiveSince(localLatest) {
 }
 
 async function confirmInfoNew(expected) {
-  await sleep(1200);
+  await sleep(1400);
   const again = await fetchOfficialLatest();
   if (!sameDraw(expected, again)) {
     throw new Error(`games/info-new изменился между проверками: first=${JSON.stringify(expected)} second=${JSON.stringify(again)}`);
@@ -179,7 +184,7 @@ async function confirmInfoNew(expected) {
 async function confirmArchive(localLatest, initialRows) {
   let previous = initialRows;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await sleep(1200);
+    await sleep(1400);
     const next = (await fetchArchiveSince(localLatest)).rows;
     if (previous[0] && next[0] && sameDraw(previous[0], next[0])) return next;
     previous = next;
@@ -226,7 +231,7 @@ async function verifySources(officialLatest, archiveRows, localLatest) {
   if (confirmLatest && confirmLatest.id >= confirmedInfo.id) {
     const common = confirmRows.find(d => d.id === confirmedInfo.id);
     if (!sameDraw(common, confirmedInfo)) {
-      throw new Error(`архив догнал/обогнал info-new, но общий тираж не совпал`);
+      throw new Error('архив догнал/обогнал info-new, но общий тираж не совпал');
     }
     return { sourceRows: confirmRows, mode: 'archive-caught-up+info-new' };
   }
