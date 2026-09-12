@@ -1,0 +1,1 @@
+probe current TOP3 API 12.09.2026
