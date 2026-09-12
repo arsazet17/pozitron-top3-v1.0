@@ -1,0 +1,47 @@
+name: Apply TOP3 v1.2.2 direct live source
+
+on:
+  push:
+    paths:
+      - 'patch-v1.2.2.mjs'
+      - 'live-source-fix.js'
+      - '.github/workflows/apply-v1.2.2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yulia-top3-v1-2-2-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply v1.2.2 patch
+        run: node patch-v1.2.2.mjs
+
+      - name: Commit app update
+        shell: bash
+        run: |
+          if git diff --quiet -- app.js index.html sw.js manifest.webmanifest; then
+            echo "Patch already applied"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js index.html sw.js manifest.webmanifest
+          git commit -m "TOP3 v1.2.2: use direct GitHub API for live draws"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
