@@ -121,15 +121,34 @@ async function fetchArchiveSince(localLatest) {
   return dedupe(out);
 }
 
-async function verifyOfficialSources(officialLatest, archiveRows, localLatest) {
-  const archiveLatest = archiveRows[0];
-  if (!archiveLatest) throw new Error('официальный архив TOP-3 вернул пустой список');
+async function confirmInfoNew(expected) {
+  await sleep(1600);
+  const again = await fetchOfficialLatest();
+  if (!sameDraw(expected, again)) {
+    throw new Error(`games/info-new изменился между проверками: first=${JSON.stringify(expected)} second=${JSON.stringify(again)}`);
+  }
+  return again;
+}
 
-  if (sameDraw(officialLatest, archiveLatest)) {
-    return { archiveRows, mode: 'archive+info-new' };
+async function verifyOfficialSources(officialLatest, archiveRows, localLatest) {
+  const archiveLatest = archiveRows[0] || null;
+
+  // После перехода TOP-3 на объект `top-3` старый архивный поток `game=top3`
+  // может запаздывать. Поэтому текущий completedDraw из games/info-new — основной
+  // источник свежего тиража, но мы подтверждаем его повторным чтением и сохраняем
+  // только непрерывную последовательность номеров.
+  if (!archiveLatest) {
+    const confirmed = await confirmInfoNew(officialLatest);
+    console.log(`ARCHIVE EMPTY/STALE: info-new дважды подтвердил №${confirmed.id}`);
+    return { sourceRows: [confirmed], mode: 'info-new-primary+archive-empty' };
   }
 
-  // Если архив уже впереди info-new, подтверждаем общий тираж и свежий архив повторным чтением.
+  if (sameDraw(officialLatest, archiveLatest)) {
+    return { sourceRows: archiveRows, mode: 'archive+info-new' };
+  }
+
+  // Если архив неожиданно впереди info-new, оставляем прежнюю строгую проверку:
+  // общий тираж должен совпасть, а свежая вершина архива — подтвердиться повторно.
   if (archiveLatest.id > officialLatest.id) {
     const common = archiveRows.find(d => d.id === officialLatest.id);
     if (!sameDraw(common, officialLatest)) {
@@ -144,32 +163,35 @@ async function verifyOfficialSources(officialLatest, archiveRows, localLatest) {
     }
 
     console.log(`INFO-NEW LAG: №${officialLatest.id}; архив дважды подтвердил №${archiveLatest.id}`);
-    return { archiveRows: confirmRows, mode: 'archive-twice+info-common' };
+    return { sourceRows: confirmRows, mode: 'archive-twice+info-common' };
   }
 
-  // info-new у Столото нередко показывает уже следующий тираж, пока архив ещё
-  // заканчивается предыдущим. Не блокируем из-за этого уже опубликованные строки:
-  // повторно читаем официальный архив и сохраняем его последний стабильный срез.
-  await sleep(2500);
-  const confirmRows = await fetchArchiveSince(localLatest);
-  const confirmLatest = confirmRows[0];
-  if (!confirmLatest) throw new Error('повторное чтение официального архива вернуло пустой список');
+  // info-new впереди старого архивного потока: подтверждаем completedDraw второй раз
+  // и сразу включаем его в поток. Архив используется только для дозаполнения истории.
+  const confirmedInfo = await confirmInfoNew(officialLatest);
 
-  if (sameDraw(confirmLatest, officialLatest)) {
-    console.log(`ARCHIVE CAUGHT UP: №${officialLatest.id} подтверждён archive + info-new`);
-    return { archiveRows: confirmRows, mode: 'archive-caught-up+info-new' };
+  let confirmRows = archiveRows;
+  try {
+    await sleep(900);
+    const secondArchiveRows = await fetchArchiveSince(localLatest);
+    if (secondArchiveRows.length) confirmRows = secondArchiveRows;
+  } catch (error) {
+    console.log(`ARCHIVE RETRY WARNING: ${error?.message || error}`);
   }
 
-  if (!sameDraw(archiveLatest, confirmLatest)) {
-    throw new Error(`архив изменился между проверками: first=${JSON.stringify(archiveLatest)} second=${JSON.stringify(confirmLatest)} info-new=${JSON.stringify(officialLatest)}`);
+  const confirmLatest = confirmRows[0] || null;
+  if (confirmLatest && confirmLatest.id >= confirmedInfo.id) {
+    const common = confirmRows.find(d => d.id === confirmedInfo.id);
+    if (!sameDraw(common, confirmedInfo)) {
+      throw new Error(`архив догнал/обогнал info-new, но общий тираж не совпал: info-new=${JSON.stringify(confirmedInfo)} archive-common=${JSON.stringify(common)}`);
+    }
+    console.log(`ARCHIVE CAUGHT UP: №${confirmedInfo.id} подтверждён archive + info-new`);
+    return { sourceRows: confirmRows, mode: 'archive-caught-up+info-new' };
   }
 
-  if (officialLatest.id - confirmLatest.id > 1) {
-    throw new Error(`info-new слишком далеко впереди архива: info-new=${JSON.stringify(officialLatest)} archive=${JSON.stringify(confirmLatest)}`);
-  }
-
-  console.log(`INFO-NEW AHEAD: №${officialLatest.id}; архив дважды подтвердил №${confirmLatest.id} — сохраняем подтверждённый архив, следующий тираж догоним позже`);
-  return { archiveRows: confirmRows, mode: 'archive-twice+info-ahead' };
+  const combined = dedupe([confirmedInfo, ...confirmRows]);
+  console.log(`INFO-NEW PRIMARY: №${confirmedInfo.id} подтверждён дважды; старый архив пока №${confirmLatest?.id ?? '—'}`);
+  return { sourceRows: combined, mode: 'info-new-primary+archive-backfill' };
 }
 
 const live = JSON.parse(await fs.readFile(LIVE_FILE, 'utf8'));
@@ -182,10 +204,10 @@ const [officialLatest, firstArchiveRows] = await Promise.all([
 ]);
 
 const verified = await verifyOfficialSources(officialLatest, firstArchiveRows, localLatest);
-const archiveRows = verified.archiveRows;
-const archiveLatest = archiveRows[0];
+const sourceRows = verified.sourceRows;
+const sourceLatest = sourceRows[0] || officialLatest;
 
-const newRows = archiveRows.filter(d => d.id > localLatest);
+const newRows = sourceRows.filter(d => d.id > localLatest);
 if (newRows.length) {
   const expected = localLatest + 1;
   const oldestNew = newRows[newRows.length - 1].id;
@@ -199,7 +221,7 @@ if (newRows.length) {
   }
 }
 
-const merged = dedupe([...archiveRows, ...existing]).slice(0, KEEP_LIVE);
+const merged = dedupe([...sourceRows, ...existing]).slice(0, KEEP_LIVE);
 const nextLatest = merged[0]?.id || localLatest;
 const payload = {
   schema: 3,
@@ -212,7 +234,7 @@ const payload = {
 };
 
 if (newRows.length === 0) {
-  console.log(`TOP3 актуален: №${localLatest}; официальный архив №${archiveLatest.id} ${archiveLatest.date} ${archiveLatest.time}=${archiveLatest.a}${archiveLatest.b}${archiveLatest.c}`);
+  console.log(`TOP3 актуален: №${localLatest}; текущий официальный источник №${sourceLatest.id} ${sourceLatest.date} ${sourceLatest.time}=${sourceLatest.a}${sourceLatest.b}${sourceLatest.c}`);
 } else {
   console.log(`TOP3 добавлено ${newRows.length}: №${newRows[newRows.length - 1].id}…№${newRows[0].id}; последний ${newRows[0].date} ${newRows[0].time}=${newRows[0].a}${newRows[0].b}${newRows[0].c}`);
 }
