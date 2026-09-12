@@ -19,6 +19,8 @@ const HEADERS = {
   'user-agent': 'Mozilla/5.0'
 };
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 function validDate(s) {
   const m = String(s).match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
   if (!m) return false;
@@ -119,20 +121,49 @@ async function fetchArchiveSince(localLatest) {
   return dedupe(out);
 }
 
+async function verifyOfficialSources(officialLatest, archiveRows, localLatest) {
+  const archiveLatest = archiveRows[0];
+  if (!archiveLatest) throw new Error('официальный архив TOP-3 вернул пустой список');
+
+  if (sameDraw(officialLatest, archiveLatest)) {
+    return { archiveRows, mode: 'archive+info-new' };
+  }
+
+  // У Столото info-new иногда обновляется на несколько секунд позже архива.
+  // В этом случае подтверждаем последний общий тираж и повторно читаем архив.
+  if (archiveLatest.id > officialLatest.id) {
+    const common = archiveRows.find(d => d.id === officialLatest.id);
+    if (!sameDraw(common, officialLatest)) {
+      throw new Error(`источники разошлись на общем тираже: info-new=${JSON.stringify(officialLatest)} archive-common=${JSON.stringify(common)}`);
+    }
+
+    await sleep(2500);
+    const confirmRows = await fetchArchiveSince(localLatest);
+    const confirmLatest = confirmRows[0];
+    if (!sameDraw(archiveLatest, confirmLatest)) {
+      throw new Error(`свежий тираж архива не подтвердился повторным чтением: first=${JSON.stringify(archiveLatest)} second=${JSON.stringify(confirmLatest)}`);
+    }
+
+    console.log(`INFO-NEW LAG: №${officialLatest.id}; архив дважды подтвердил №${archiveLatest.id}`);
+    return { archiveRows: confirmRows, mode: 'archive-twice+info-common' };
+  }
+
+  // Если info-new оказался впереди архива, ничего не записываем до следующей проверки.
+  throw new Error(`архив Столото ещё не догнал info-new: info-new=${JSON.stringify(officialLatest)} archive=${JSON.stringify(archiveLatest)}`);
+}
+
 const live = JSON.parse(await fs.readFile(LIVE_FILE, 'utf8'));
 const existing = dedupe(live?.draws || []);
 const localLatest = Math.max(Number(live?.latest || 0), existing[0]?.id || 0);
 
-const [officialLatest, archiveRows] = await Promise.all([
+const [officialLatest, firstArchiveRows] = await Promise.all([
   fetchOfficialLatest(),
   fetchArchiveSince(localLatest)
 ]);
 
+const verified = await verifyOfficialSources(officialLatest, firstArchiveRows, localLatest);
+const archiveRows = verified.archiveRows;
 const archiveLatest = archiveRows[0];
-if (!archiveLatest) throw new Error('официальный архив TOP-3 вернул пустой список');
-if (!sameDraw(officialLatest, archiveLatest)) {
-  throw new Error(`двойная проверка не совпала: info-new=${JSON.stringify(officialLatest)} archive=${JSON.stringify(archiveLatest)}`);
-}
 
 const newRows = archiveRows.filter(d => d.id > localLatest);
 if (newRows.length) {
@@ -152,7 +183,7 @@ const merged = dedupe([...archiveRows, ...existing]).slice(0, KEEP_LIVE);
 const nextLatest = merged[0]?.id || localLatest;
 const payload = {
   schema: 3,
-  source: 'Полный архив TOP-3 · официальный API Столото (archive + info-new, двойная проверка)',
+  source: `Полный архив TOP-3 · официальный API Столото (${verified.mode})`,
   updatedAt: new Date().toISOString(),
   latest: nextLatest,
   regularTimes: [...REGULAR_DRAW_TIMES],
@@ -161,7 +192,7 @@ const payload = {
 };
 
 if (newRows.length === 0) {
-  console.log(`TOP3 актуален: №${localLatest}; официальный последний №${officialLatest.id} ${officialLatest.date} ${officialLatest.time}=${officialLatest.a}${officialLatest.b}${officialLatest.c}`);
+  console.log(`TOP3 актуален: №${localLatest}; официальный архив №${archiveLatest.id} ${archiveLatest.date} ${archiveLatest.time}=${archiveLatest.a}${archiveLatest.b}${archiveLatest.c}`);
 } else {
   console.log(`TOP3 добавлено ${newRows.length}: №${newRows[newRows.length - 1].id}…№${newRows[0].id}; последний ${newRows[0].date} ${newRows[0].time}=${newRows[0].a}${newRows[0].b}${newRows[0].c}`);
 }
