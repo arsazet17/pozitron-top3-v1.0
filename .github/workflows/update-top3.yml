@@ -7,7 +7,6 @@ on:
   push:
     paths:
       - 'update-top3-api.mjs'
-      - 'update-top3.mjs'
       - '.github/workflows/update-top3.yml'
 
 permissions:
@@ -20,7 +19,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,23 +29,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Try official Stoloto API
-        id: api_update
-        continue-on-error: true
+      - name: Update from current Stoloto API
         run: node update-top3-api.mjs
-
-      - name: Install Chromium fallback
-        if: steps.api_update.outcome == 'failure'
-        run: |
-          npm install --no-save playwright@1.54.2
-          npx playwright install --with-deps chromium
-
-      - name: Update through authenticated Stoloto browser
-        if: steps.api_update.outcome == 'failure'
-        env:
-          STOLOTO_EMAIL: ${{ secrets.STOLOTO_EMAIL }}
-          STOLOTO_PASSWORD: ${{ secrets.STOLOTO_PASSWORD }}
-        run: node update-top3.mjs
 
       - name: Merge into permanent history
         run: node persist-top3-history.mjs
