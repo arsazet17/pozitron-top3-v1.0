@@ -11,6 +11,10 @@ if(!html.includes('triple-methods.js')){
   const mirror=/(\s*<script[^>]+mirror-method\.js[^>]*><\/script>\s*)/i;
   html=mirror.test(html)?html.replace(mirror,m=>m+tag):html.replace('</body>',tag+'</body>');
 }
+html=html.replace(/Yulia TOP-3 v[^ ]+ —/,`Yulia TOP-3 v${VERSION} —`);
+html=html.replace(/window\.TOP3_BUILD\s*=\s*['"][^'"]+['"]\s*;/,`window.TOP3_BUILD = '${VERSION}';`);
+html=html.replace(/<span class="version">v[^<]+<\/span>/,`<span class="version">v${VERSION}</span>`);
+html=html.replaceAll('v=1.1.0',`v=${VERSION}`);
 fs.writeFileSync('index.html',html);
 
 let app=fs.readFileSync('app.js','utf8');
@@ -23,5 +27,6 @@ if(!sw.includes('triple-methods.css')){
   sw=sw.replace(/('\.\/mirror-method\.css[^']*'\s*,\s*'\.\/mirror-method\.js[^']*'\s*,?)/,
     `$1\n  './triple-methods.css?v=${VERSION}', './triple-methods.js?v=${VERSION}',`);
 }
+sw=sw.replaceAll('v=1.1.0',`v=${VERSION}`);
 fs.writeFileSync('sw.js',sw);
 console.log('Triple M1/M2/M3 UI installed, version',VERSION);
