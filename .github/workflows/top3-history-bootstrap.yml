@@ -2,20 +2,12 @@ name: TOP-3 history bootstrap
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'persist-top3-history.mjs'
-      - '.github/workflows/update-top3.yml'
-      - '.github/workflows/update-top3-backup.yml'
-      - '.github/workflows/top3-history-bootstrap.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: yulia-top3-stoloto-oauth
+  group: yulia-top3-history-bootstrap
   cancel-in-progress: false
 
 jobs:
