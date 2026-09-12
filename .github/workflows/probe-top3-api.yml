@@ -1,0 +1,33 @@
+name: Probe TOP3 API
+on:
+  push:
+    paths: ['probe-top3-api.txt']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe official endpoints
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const urls=[
+            'https://m.stoloto.ru/p/api/mobile/api/v35/service/games/info-new',
+            'https://m.stoloto.ru/p/api/mobile/api/v35/service/draws/archive?game=top3&count=10&page=1',
+            'https://m.stoloto.ru/p/api/mobile/api/v35/service/draws/archive?game=top-3&count=10&page=1'
+          ];
+          for (const u of urls){
+            try{
+              const r=await fetch(u,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json'}});
+              const t=await r.text();
+              console.log('\nURL',u,'STATUS',r.status,'LEN',t.length);
+              if(u.includes('info-new')){
+                const j=JSON.parse(t); const g=(j.games||[]).find(x=>x.name==='top-3');
+                console.log('TOP3',JSON.stringify(g&&{draw:g.draw,completedDraw:g.completedDraw}));
+              } else {
+                const j=JSON.parse(t); console.log('DRAWS',JSON.stringify((j.draws||[]).slice(0,5).map(d=>({number:d.number,date:d.date,combination:d.combination?.structured,winningCombination:d.winningCombination}))));
+              }
+            }catch(e){console.log('ERR',u,String(e));}
+          }
+          NODE
