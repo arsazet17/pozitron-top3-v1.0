@@ -134,7 +134,6 @@ async function seedDatabase(force = false) {
     clearTx.objectStore(STORE).clear();
     await withTimeout(txDone(clearTx), 6000, 'Очистка базы');
   }
-  const rows = seedObjects();
   const batchSize = 500;
   for (let offset=0; offset<rows.length; offset+=batchSize) {
     const tx = db.transaction(STORE, 'readwrite');
