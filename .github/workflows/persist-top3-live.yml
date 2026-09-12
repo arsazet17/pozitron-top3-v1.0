@@ -1,0 +1,43 @@
+name: Persist TOP-3 live history
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'top3-live.json'
+      - 'persist-top3-trigger.txt'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yulia-top3-persist-live
+  cancel-in-progress: false
+
+jobs:
+  persist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Merge live into permanent history
+        run: node persist-top3-history.mjs
+      - name: Commit permanent history
+        shell: bash
+        run: |
+          if git diff --quiet -- top3-history.json; then
+            echo "Permanent history already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add top3-history.json
+          git commit -m "TOP3: persist live draws into permanent history"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
