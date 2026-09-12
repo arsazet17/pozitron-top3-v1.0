@@ -8,13 +8,13 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Yulia TOP-3">
-  <title>Yulia TOP-3 v1.0.29 — архивы по времени и ИИ Позитрон</title>
+  <title>Yulia TOP-3 v1.1.0 — архивы по времени и ИИ Позитрон</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="styles.css?v=1.0.29-fix1">
   <script>
-    window.TOP3_BUILD = '1.0.29';
+    window.TOP3_BUILD = '1.1.0';
 </script>
   <link rel="stylesheet" href="mirror-method.css?v=1.0.29-fix1">
 </head>
@@ -29,7 +29,7 @@
       <img src="icon-192.png" alt="Логотип Yulia TOP-3">
       <div>
         <h1>Yulia TOP-3</h1>
-        <p><span class="version">v1.0.29</span> <span id="dbBadge">База загружается…</span></p>
+        <p><span class="version">v1.1.0</span> <span id="dbBadge">База загружается…</span></p>
       </div>
     </div>
     <button id="refreshBtn" class="icon-btn" type="button" aria-label="Проверить новые тиражи" title="Проверить новые тиражи">↻</button>
@@ -78,7 +78,7 @@
           </div>
           <span id="aiSignalBadge" class="ai-signal weak">Слабый сигнал</span>
         </div>
-        <p class="panel-note">Модель работает только с архивом выбранного времени: например, 13:40 сравнивается с предыдущими 13:40 по дням. Три поля оцениваются отдельно по модулю 10. Это аналитический эксперимент, а не гарантия результата.</p>
+        <p class="panel-note">Модель работает только с архивом выбранного времени: например, 13:25 сравнивается с предыдущими 13:25 по дням. Три поля оцениваются отдельно по модулю 10. Это аналитический эксперимент, а не гарантия результата.</p>
         <div id="aiContext" class="ai-context"></div>
         <div id="aiMainPrediction" class="ai-main-prediction"></div>
         <div id="aiColumnPredictions" class="ai-columns"></div>
@@ -126,7 +126,7 @@
       <section class="panel time-archive-panel" aria-labelledby="archiveTimeTitle">
         <div class="section-head">
           <div>
-            <span class="eyebrow">11 АРХИВОВ</span>
+            <span class="eyebrow">ПОЛНЫЙ АРХИВ · ВСЕ РАСПИСАНИЯ</span>
             <h3 id="archiveTimeTitle">Выбери архив или время</h3>
           </div>
         </div>
@@ -152,7 +152,7 @@
       <section class="panel filters archive-filters">
         <label>Поиск: +106 — точная разница; 106 — точная комбинация; №267106 — тираж<input id="archiveSearch" type="search" placeholder="Например: +106, 106 или №267106"></label>
         <div class="filter-grid">
-          <label>Область поиска<select id="archiveSearchScope"><option value="selected">Только выбранное время</option><option value="all">Все 10 времён</option></select></label>
+          <label>Область поиска<select id="archiveSearchScope"><option value="selected">Только выбранное время</option><option value="all">Все времена</option></select></label>
           <label>Показывать<select id="archiveLimit"><option value="50">50 тиражей</option><option value="100">100 тиражей</option><option value="250">250 тиражей</option></select></label>
         </div>
       </section>
@@ -162,7 +162,7 @@
 
     <section id="view-ai" class="view" aria-labelledby="aiTimeTitle">
       <div class="page-title">
-        <span class="eyebrow">ОБЩАЯ МОДЕЛЬ И 10 МОДЕЛЕЙ ПО ВРЕМЕНИ</span>
+        <span class="eyebrow">ОБЩАЯ МОДЕЛЬ И 48 МОДЕЛЕЙ ПО ВРЕМЕНИ</span>
         <h2 id="aiTimeTitle">ИИ Позитрон по времени</h2>
         <p>Режим «ВСЕ» анализирует соседние тиражи общего архива. Отдельные кнопки времени обучают модель только на переходах одного времени между днями.</p>
       </div>
@@ -277,9 +277,17 @@
         <div class="section-head"><div><span class="eyebrow">ПЕРЕХОДЫ</span><h3>Что чаще шло после последних цифр</h3></div></div>
         <div id="transitionCards" class="transition-grid"></div>
       </section>
-      <section class="panel">
-        <div class="section-head"><div><span class="eyebrow">КОМБИНАЦИИ</span><h3>Частые точные тройки</h3></div></div>
+      <section class="panel triple-combo-panel">
+        <div class="section-head"><div><span class="eyebrow">КОМБИНАЦИИ</span><h3>Тройные комбинации</h3></div></div>
+        <p class="panel-note">Сверху — 20 самых частых точных комбинаций выбранного периода. Ниже отдельно ведётся фактическая статистика XXX: 000, 111, 222 … 999 по периоду и по всей базе.</p>
+        <div class="triple-summary-grid">
+          <div><span>Лидер XXX · последние 20</span><strong id="tripleLeader20">—</strong></div>
+          <div><span>Последняя выпавшая XXX</span><strong id="tripleLast">—</strong></div>
+        </div>
+        <h4 class="analysis-subtitle">Частые точные комбинации</h4>
         <div id="comboTable" class="combo-list"></div>
+        <h4 class="analysis-subtitle">Все XXX · 000–999</h4>
+        <div id="tripleComboTable" class="triple-combo-list"></div>
       </section>
     </section>
 
@@ -354,7 +362,7 @@
       </section>
       <section class="panel schedule-panel">
         <div class="section-head"><div><span class="eyebrow">РАСПИСАНИЕ</span><h3>Розыгрыши по Москве</h3></div></div>
-        <p>02:40 · 04:40 · 06:40 · 07:40 · 09:40 · 11:40 · 13:40 · 16:25 · 21:25 · 22:40</p>
+        <p>48 тиражей в сутки · каждые 30 минут: 00:25 · 00:55 · 01:25 · 01:55 · … · 23:25 · 23:55</p>
       </section>
     </section>
   </main>
@@ -369,9 +377,9 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="top3-data.js?v=1.0.21"></script>
+  <script src="top3-data.js?v=1.1.0"></script>
   <script src="top3-storage-indexeddb.js?v=1.0.1"></script>
-  <script src="app.js?v=1.0.30-idb"></script>
+  <script src="app.js?v=1.1.0"></script>
   <script src="mirror-method.js?v=1.0.29-fix1"></script>
 </body>
 </html>

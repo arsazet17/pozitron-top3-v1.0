@@ -8,10 +8,12 @@ const LIVE_FILE = new URL('./top3-live.json', import.meta.url);
 const LOGIN_URL = 'https://oauth.stoloto.ru/login';
 const ARCHIVE_URL = 'https://m.stoloto.ru/top3/archive';
 
-const REGULAR_DRAW_TIMES = new Set([
-  '02:40','04:40','06:40','07:40','09:40',
-  '11:40','13:40','16:25','21:25','22:40'
-]);
+const REGULAR_DRAW_TIMES = new Set(Array.from({ length: 48 }, (_, index) => {
+  const totalMinutes = 25 + index * 30;
+  const hour = Math.floor(totalMinutes / 60) % 24;
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}));
 
 function clean(s) {
   return String(s ?? '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();

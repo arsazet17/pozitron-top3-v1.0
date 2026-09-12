@@ -649,3 +649,7 @@ input:focus,select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba
   .home-forecast-fact-digits{gap:3px}
   .home-forecast-fact-digits span{width:28px}
 }
+
+
+/* v1.1.0 triple analytics */
+.triple-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 18px}.triple-summary-grid>div{padding:13px;border:1px solid rgba(117,161,255,.24);border-radius:14px;background:rgba(10,30,72,.45);display:flex;flex-direction:column;gap:6px}.triple-summary-grid span{font-size:.76rem;opacity:.72}.triple-summary-grid strong{font-size:1rem}.analysis-subtitle{margin:18px 0 9px;font-size:.9rem}.triple-combo-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.triple-item{border:1px solid rgba(117,161,255,.2);border-radius:12px;padding:11px;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:center}.triple-item>strong{grid-row:1/4;font-size:1.25rem}.triple-item span,.triple-item small{font-size:.75rem}.triple-item small{opacity:.66}@media(max-width:560px){.triple-summary-grid,.triple-combo-list{grid-template-columns:1fr}}

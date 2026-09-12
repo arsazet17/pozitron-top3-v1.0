@@ -1,10 +1,15 @@
 'use strict';
 
-const APP_VERSION = '1.0.30';
+const APP_VERSION = '1.1.0';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
-const DRAW_TIMES = ['02:40','04:40','06:40','07:40','09:40','11:40','13:40','16:25','21:25','22:40'];
+const DRAW_TIMES = Array.from({ length: 48 }, (_, index) => {
+  const totalMinutes = 25 + index * 30;
+  const hour = Math.floor(totalMinutes / 60) % 24;
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+});
 const AUTO_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_STATUS_KEY = 'yulia-top3-auto-status-v1';
 const ARCHIVE_MODE_KEY = 'yulia-top3-archive-mode-v1';
@@ -14,7 +19,7 @@ const AI_TIME_KEY = 'yulia-top3-ai-time-v2';
 const ANALYSIS_RANGE_KEY = 'yulia-top3-analysis-range-v2';
 const FORECAST_ARCHIVE_KEY = 'yulia-top3-forecast-archive-v2-auto';
 const LUCKY_ARCHIVE_URL = 'https://lucky-numbers.ru/lottery/ru/top3';
-const LIVE_DATA_URL = './top3-live.json';
+const LIVE_DATA_URL = './top3-history.json';
 
 let db;
 let draws = [];
@@ -26,7 +31,7 @@ let syncStatus = loadSyncStatus();
 let storageReady = false;
 let eventsBound = false;
 let archiveMode = 'normal';
-let archiveTime = '13:40';
+let archiveTime = '13:25';
 let archiveSearchScope = 'selected';
 let aiSelectedTime = 'all';
 let aiCache = new Map();
@@ -121,7 +126,9 @@ async function seedDatabase(force = false) {
   if (!db) throw new Error('Локальная база не открыта');
   if (!Array.isArray(window.TOP3_SEED)) throw new Error('Встроенный архив не найден');
   const existing = await withTimeout(countDB(), 6000, 'Проверка базы');
-  if (existing && !force) return;
+  const rows = seedObjects();
+  // После расширения встроенного архива один раз дольём недостающую историю в IndexedDB.
+  if (existing && !force && existing >= rows.length) return;
   if (force) {
     const clearTx = db.transaction(STORE, 'readwrite');
     clearTx.objectStore(STORE).clear();
@@ -587,7 +594,13 @@ function renderTimeChips(containerId, selectedTime, attributeName) {
   const allButton = includeAll
     ? `<button class="time-chip all-times ${selectedTime === 'all' ? 'active' : ''}" type="button" data-${attributeName}="all"><strong>ВСЕ</strong><small>${draws.length.toLocaleString('ru-RU')}</small></button>`
     : '';
-  const timeButtons = DRAW_TIMES.map(time => {
+  const sourceTimes = attributeName === 'archive-time'
+    ? [...new Set([...DRAW_TIMES, ...draws.map(draw => draw.time)])].sort((a,b) => {
+        const [ah,am] = a.split(':').map(Number); const [bh,bm] = b.split(':').map(Number);
+        return ah * 60 + am - (bh * 60 + bm);
+      })
+    : DRAW_TIMES;
+  const timeButtons = sourceTimes.map(time => {
     const count = drawsForTime(time).length;
     return `<button class="time-chip ${time === selectedTime ? 'active' : ''}" type="button" data-${attributeName}="${time}"><strong>${time}</strong><small>${count.toLocaleString('ru-RU')}</small></button>`;
   }).join('');
@@ -1241,8 +1254,53 @@ function renderAnalysis() {
   }
   const combos = new Map();
   list.forEach(d=>{ const k=`${d.a}${d.b}${d.c}`; combos.set(k,(combos.get(k)||0)+1); });
-  const top=[...combos.entries()].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,10);
+  const top=[...combos.entries()].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,20);
   $('comboTable').innerHTML = top.map(([k,n],i)=>`<div class="combo-item"><b>${i+1}. ${k}</b><span>${n} раз</span></div>`).join('');
+
+  // Отдельная фактическая статистика троек XXX: 000, 111 ... 999.
+  const tripleCodes = Array.from({length:10}, (_,digit) => String(digit).repeat(3));
+  const periodTriple = new Map(tripleCodes.map(code => [code,0]));
+  const allTriple = new Map(tripleCodes.map(code => [code,0]));
+  list.forEach(d => {
+    if (d.a === d.b && d.b === d.c) {
+      const code = String(d.a).repeat(3);
+      periodTriple.set(code, (periodTriple.get(code) || 0) + 1);
+    }
+  });
+  draws.forEach(d => {
+    if (d.a === d.b && d.b === d.c) {
+      const code = String(d.a).repeat(3);
+      allTriple.set(code, (allTriple.get(code) || 0) + 1);
+    }
+  });
+
+  const last20Counts = new Map(tripleCodes.map(code => [code,0]));
+  draws.slice(0,20).forEach(d => {
+    if (d.a === d.b && d.b === d.c) {
+      const code = String(d.a).repeat(3);
+      last20Counts.set(code, (last20Counts.get(code) || 0) + 1);
+    }
+  });
+  const leader20 = [...last20Counts.entries()].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))[0];
+  $('tripleLeader20').textContent = leader20 && leader20[1] > 0 ? `${leader20[0]} · ${leader20[1]} раз` : 'XXX не было';
+
+  const lastTripleIndex = draws.findIndex(d => d.a === d.b && d.b === d.c);
+  const lastTriple = lastTripleIndex >= 0 ? draws[lastTripleIndex] : null;
+  $('tripleLast').textContent = lastTriple
+    ? `${String(lastTriple.a).repeat(3)} · ${lastTriple.date} ${lastTriple.time} · ${lastTripleIndex} тиражей назад`
+    : 'нет в архиве';
+
+  $('tripleComboTable').innerHTML = tripleCodes.map(code => {
+    const digit = Number(code[0]);
+    const lastIndex = draws.findIndex(d => d.a === digit && d.b === digit && d.c === digit);
+    const last = lastIndex >= 0 ? draws[lastIndex] : null;
+    return `<div class="triple-item">
+      <strong>${code}</strong>
+      <span>период: <b>${periodTriple.get(code) || 0}</b></span>
+      <span>вся база: <b>${allTriple.get(code) || 0}</b></span>
+      <small>${last ? `последняя: ${last.date} ${last.time} · ${lastIndex} тиражей назад` : 'ещё не было'}</small>
+    </div>`;
+  }).join('');
   renderRecentChain();
   renderChainSearch();
   if ($('digitSearchA').value !== '') renderDigitSearch();
@@ -1762,7 +1820,8 @@ function isVerifiedOfficialSource(source) {
 async function repairVerifiedOnlineOverlap(items, source) {
   if (!isVerifiedOfficialSource(source) || !db || !storageReady || !Array.isArray(items)) return 0;
 
-  const valid = items.filter(draw => isValidDraw(draw) && DRAW_TIMES.includes(draw.time));
+  // Полный постоянный архив содержит и исторические расписания, поэтому здесь проверяем сам факт, а не только текущие 48 времён.
+  const valid = items.filter(draw => isValidDraw(draw));
   const localById = new Map(draws.map(draw => [draw.id, draw]));
   const overlap = valid.filter(draw => localById.has(draw.id));
 

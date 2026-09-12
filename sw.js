@@ -1,10 +1,10 @@
-const CACHE_NAME = 'yulia-top3-v1-0-30-idb';
+const CACHE_NAME = 'yulia-top3-v1-1-0';
 const OFFLINE_URL = './index.html';
-const LIVE_FILE = './top3-live.json';
+const LIVE_FILE = './top3-history.json';
 const ASSETS = [
-  './index.html', './repair.html', './styles.css?v=1.0.29-fix1', './top3-storage-indexeddb.js?v=1.0.1', './app.js?v=1.0.30-idb',
-  './mirror-method.css?v=1.0.29-fix1', './mirror-method.js?v=1.0.29-fix1',
-  './top3-data.js?v=1.0.21', './manifest.webmanifest',
+  './index.html', './repair.html', './styles.css?v=1.1.0', './top3-storage-indexeddb.js?v=1.0.1', './app.js?v=1.1.0',
+  './mirror-method.css?v=1.1.0', './mirror-method.js?v=1.1.0',
+  './top3-data.js?v=1.1.0', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 
@@ -37,7 +37,7 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.endsWith('/sw.js')) return;
 
-  const isLive = url.pathname.endsWith('/top3-live.json');
+  const isLive = url.pathname.endsWith('/top3-history.json');
   if (isLive) {
     event.respondWith((async () => {
       try {
