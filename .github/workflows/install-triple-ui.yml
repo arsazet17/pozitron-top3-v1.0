@@ -1,0 +1,43 @@
+name: Install TOP-3 triple methods UI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'install-triple-ui.mjs'
+      - '.github/workflows/install-triple-ui.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yulia-top3-install-triple-ui
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch app entrypoint and PWA cache
+        run: node install-triple-ui.mjs
+      - name: Commit triple UI integration
+        shell: bash
+        run: |
+          if git diff --quiet -- index.html app.js sw.js; then
+            echo "Triple UI already installed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html app.js sw.js
+          git commit -m "TOP3: enable M1 M2 M3 triples panel"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
