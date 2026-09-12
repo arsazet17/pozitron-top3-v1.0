@@ -129,8 +129,7 @@ async function verifyOfficialSources(officialLatest, archiveRows, localLatest) {
     return { archiveRows, mode: 'archive+info-new' };
   }
 
-  // У Столото info-new иногда обновляется на несколько секунд позже архива.
-  // В этом случае подтверждаем последний общий тираж и повторно читаем архив.
+  // Если архив уже впереди info-new, подтверждаем общий тираж и свежий архив повторным чтением.
   if (archiveLatest.id > officialLatest.id) {
     const common = archiveRows.find(d => d.id === officialLatest.id);
     if (!sameDraw(common, officialLatest)) {
@@ -148,8 +147,29 @@ async function verifyOfficialSources(officialLatest, archiveRows, localLatest) {
     return { archiveRows: confirmRows, mode: 'archive-twice+info-common' };
   }
 
-  // Если info-new оказался впереди архива, ничего не записываем до следующей проверки.
-  throw new Error(`архив Столото ещё не догнал info-new: info-new=${JSON.stringify(officialLatest)} archive=${JSON.stringify(archiveLatest)}`);
+  // info-new у Столото нередко показывает уже следующий тираж, пока архив ещё
+  // заканчивается предыдущим. Не блокируем из-за этого уже опубликованные строки:
+  // повторно читаем официальный архив и сохраняем его последний стабильный срез.
+  await sleep(2500);
+  const confirmRows = await fetchArchiveSince(localLatest);
+  const confirmLatest = confirmRows[0];
+  if (!confirmLatest) throw new Error('повторное чтение официального архива вернуло пустой список');
+
+  if (sameDraw(confirmLatest, officialLatest)) {
+    console.log(`ARCHIVE CAUGHT UP: №${officialLatest.id} подтверждён archive + info-new`);
+    return { archiveRows: confirmRows, mode: 'archive-caught-up+info-new' };
+  }
+
+  if (!sameDraw(archiveLatest, confirmLatest)) {
+    throw new Error(`архив изменился между проверками: first=${JSON.stringify(archiveLatest)} second=${JSON.stringify(confirmLatest)} info-new=${JSON.stringify(officialLatest)}`);
+  }
+
+  if (officialLatest.id - confirmLatest.id > 1) {
+    throw new Error(`info-new слишком далеко впереди архива: info-new=${JSON.stringify(officialLatest)} archive=${JSON.stringify(confirmLatest)}`);
+  }
+
+  console.log(`INFO-NEW AHEAD: №${officialLatest.id}; архив дважды подтвердил №${confirmLatest.id} — сохраняем подтверждённый архив, следующий тираж догоним позже`);
+  return { archiveRows: confirmRows, mode: 'archive-twice+info-ahead' };
 }
 
 const live = JSON.parse(await fs.readFile(LIVE_FILE, 'utf8'));
