@@ -1,0 +1,39 @@
+name: Hotfix Yulia TOP-3 v1.1.0
+
+on:
+  push:
+    paths:
+      - 'hotfix-v1.1.0.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply hotfix
+        run: node hotfix-v1.1.0.mjs
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check update-top3.mjs
+          node --check persist-top3-history.mjs
+      - name: Rebuild archive check
+        run: node persist-top3-history.mjs
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js index.html sw.js top3-history.json
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+          git commit -m "Fix Yulia TOP-3 v1.1.0 startup and cache version"
+          git push
