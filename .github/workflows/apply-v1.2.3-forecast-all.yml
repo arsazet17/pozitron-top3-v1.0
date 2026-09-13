@@ -1,0 +1,42 @@
+name: Apply TOP3 v1.2.3 forecast persistence
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'patch-v1.2.3-forecast-all.mjs'
+      - '.github/workflows/apply-v1.2.3-forecast-all.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: top3-v1-2-3-forecast-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply v1.2.3 patch
+        run: node patch-v1.2.3-forecast-all.mjs
+      - name: Commit repaired forecast persistence
+        shell: bash
+        run: |
+          if git diff --quiet -- app.js update-top3-api.mjs index.html sw.js manifest.webmanifest; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.js update-top3-api.mjs index.html sw.js manifest.webmanifest
+          git commit -m "TOP3 v1.2.3: persist every forecast"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
