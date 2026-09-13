@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='1.2.2';
+const APP_VERSION='1.2.3';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
@@ -749,8 +749,7 @@ function ensureAutomaticForecast() {
   };
   forecastArchive.push(item);
   forecastArchive = forecastArchive
-    .sort((a,b)=>Number(a.targetId)-Number(b.targetId))
-    .slice(-120);
+    .sort((a,b)=>Number(a.targetId)-Number(b.targetId));
   saveForecastArchive();
   return item;
 }
@@ -1350,7 +1349,24 @@ async function saveForecastArchive() {
 async function hydrateForecastArchive() {
   const loaded = await loadForecastArchive();
   if (Array.isArray(loaded)) {
-    forecastArchive = loaded;
+    // Важно: не перезаписываем прогноз, который мог быть создан renderAll()
+    // до завершения асинхронной загрузки IndexedDB. Объединяем оба архива.
+    const merged = [...loaded, ...forecastArchive];
+    const byId = new Map();
+    for (const item of merged) {
+      if (!item || typeof item !== 'object') continue;
+      const key = item.id
+        ? String(item.id)
+        : `${item.automatic ? 'auto' : 'manual'}:${Number(item.targetId) || 0}:${String(item.createdAt || '')}`;
+      const previous = byId.get(key);
+      if (!previous || String(item.createdAt || '') >= String(previous.createdAt || '')) byId.set(key, item);
+    }
+    forecastArchive = [...byId.values()].sort((a,b) =>
+      Number(a.targetId || 0) - Number(b.targetId || 0) ||
+      String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+    );
+    await saveForecastArchive();
+    try { renderHomeForecast(); } catch {}
     try { renderForecastArchive(); } catch {}
   }
 }
@@ -1398,8 +1414,7 @@ function mergeServerForecasts(items) {
   }
   if (!added) return 0;
   forecastArchive = forecastArchive
-    .sort((a,b) => Number(a.targetId || 0) - Number(b.targetId || 0))
-    .slice(-240);
+    .sort((a,b) => Number(a.targetId || 0) - Number(b.targetId || 0));
   saveForecastArchive();
   return added;
 }
