@@ -1,0 +1,102 @@
+name: Apply triple serial leader rule
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-triple-series-leader.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add serial leader rule to triples
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('triple-methods.js')
+          s = p.read_text(encoding='utf-8')
+
+          # Module/app visible version for this rules update.
+          s = re.sub(r"const VERSION='[^']+';", "const VERSION='1.2.4';", s, count=1)
+
+          if 'tmSeriesLeader' not in s:
+              old = " const births=[];if(packages.length)births.push('000');for(const r of [...normalM1,...normalM3])if(!births.includes(r.triple))births.push(r.triple);for(const r of newReady)if(!births.includes(r.triple))births.push(r.triple);"
+              new = """ const births=[];if(packages.length)births.push('000');for(const r of [...normalM1,...normalM3])if(!births.includes(r.triple))births.push(r.triple);for(const r of newReady)if(!births.includes(r.triple))births.push(r.triple);
+ const additionBirths=uniq([...normalM1,...normalM3].map(r=>r.triple));diag.additionBirths=[...additionBirths];diag.seriesEvents=[];const priorStreaks=state.additionStreaks||{},additionStreaks={};for(const t of additionBirths){const prev=priorStreaks[t],consecutive=prev&&Number(prev.lastId)===current.id-1;additionStreaks[t]={len:consecutive?Number(prev.len||1)+1:1,lastId:current.id};}
+ const serialLeaders=(state.serialLeaders||[]).map(x=>({...x,rem:Number(x.rem||0)-1})).filter(x=>x.rem>0);for(const [t,streak] of Object.entries(additionStreaks)){if(streak.len===2&&!serialLeaders.some(x=>x.triple===t)){serialLeaders.push({triple:t,rem:5,startedAt:current.id,rule:'addition-streak'});diag.seriesEvents.push(`${t}: сложением 2 тиража подряд → ЛИДЕР на 5 следующих тиражей`);}}"""
+              if old not in s:
+                  raise SystemExit('births marker not found')
+              s = s.replace(old, new, 1)
+
+              old = "const m2Ready=[...carriedReady,...newReady],m3=[...carriedM3,...newM3],frozen=uniq([...packages,...m1Forecast,...m2Ready.map(x=>x.triple),...m3.map(x=>x.triple)]);"
+              new = "const m2Ready=[...carriedReady,...newReady],m3=[...carriedM3,...newM3],frozen=uniq([...packages,...m1Forecast,...m2Ready.map(x=>x.triple),...m3.map(x=>x.triple),...serialLeaders.map(x=>x.triple)]);"
+              if old not in s:
+                  raise SystemExit('frozen marker not found')
+              s = s.replace(old, new, 1)
+
+              old = "Object.assign(state,{m1Bases:nextBases,m1Forecast,m2Windows:windows,m2Ready,m3,packageForecast:packages,frozen,diag});"
+              new = "Object.assign(state,{m1Bases:nextBases,m1Forecast,m2Windows:windows,m2Ready,m3,packageForecast:packages,additionStreaks,serialLeaders,frozen,diag});"
+              if old not in s:
+                  raise SystemExit('state marker not found')
+              s = s.replace(old, new, 1)
+
+              old = "return{last,next,m1:state.m1Forecast,m2:state.m2Ready,m3:state.m3,windows:state.m2Windows,packages:state.packageForecast,frozen:state.frozen,diag:state.diag,leader:leader(state),archive:state.archive};"
+              new = "return{last,next,m1:state.m1Forecast,m2:state.m2Ready,m3:state.m3,windows:state.m2Windows,packages:state.packageForecast,serialLeaders:state.serialLeaders||[],additionStreaks:state.additionStreaks||{},frozen:state.frozen,diag:state.diag,leader:leader(state),archive:state.archive};"
+              if old not in s:
+                  raise SystemExit('snapshot marker not found')
+              s = s.replace(old, new, 1)
+
+              old = "</article></div><div class=\"tm-diagnostics\">"
+              new = """</article></div><div class=\"tm-leader tm-series-leader\"><div><span>🔥 Серийный лидер · сложение подряд</span><strong id=\"tmSeriesLeader\">—</strong></div><div id=\"tmSeriesMeta\" class=\"tm-sub\">—</div><small>Если одна и та же XXX-тройня рождается именно сложением 2 тиража подряд или больше, после второго подряд она становится лидером на 5 следующих тиражей и идёт вместе с остальными тройнями. Carry/дубль не считается; 3-й и последующие подряд не перезапускают пяти-тиражное окно.</small></div><div class=\"tm-diagnostics\">"""
+              if old not in s:
+                  raise SystemExit('panel marker not found')
+              s = s.replace(old, new, 1)
+
+              old = "setText('tmBlocks',"
+              new = """const sl=s.serialLeaders||[];setText('tmSeriesLeader',sl.length?sl.map(x=>`${x.triple} · rem${x.rem}/5`).join(' / '):'—');const streakRows=Object.entries(s.additionStreaks||{}).sort((a,b)=>tripleSort(a[0],b[0]));setText('tmSeriesMeta',streakRows.length?`Сложением сейчас: ${streakRows.map(([t,x])=>`${t} ×${x.len} подряд`).join(' · ')}`:'Новой серии сложением сейчас нет');setText('tmBlocks',"""
+              if old not in s:
+                  raise SystemExit('render marker not found')
+              s = s.replace(old, new, 1)
+
+          p.write_text(s, encoding='utf-8')
+
+          # Bump the app build so browsers/PWA cannot keep the old triples module.
+          p = Path('app.js')
+          s = p.read_text(encoding='utf-8')
+          s = re.sub(r"const APP_VERSION='[^']+';", "const APP_VERSION='1.2.4';", s, count=1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8').replace('1.2.3', '1.2.4')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('sw.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("yulia-top3-v1-2-3-forecast-all", "yulia-top3-v1-2-4-triple-series-leader")
+          s = s.replace('1.2.3', '1.2.4')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('manifest.webmanifest')
+          s = p.read_text(encoding='utf-8').replace('1.2.3-forecast-all', '1.2.4-triple-series-leader')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Commit update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add triple-methods.js app.js index.html sw.js manifest.webmanifest
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "TOP3 v1.2.4: add 5-draw serial leader rule for triples"
+          git push
