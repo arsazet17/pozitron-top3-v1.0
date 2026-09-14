@@ -3,6 +3,7 @@ name: Apply triple leaders table
 on:
   push:
     paths:
+      - 'patch-m4-leader-table.py'
       - '.github/workflows/apply-triple-leader-table.yml'
 
 permissions:
@@ -15,51 +16,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Add leaders table after forecast archive
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path('triple-methods.js')
-          s = p.read_text(encoding='utf-8')
-          s = re.sub(r"const VERSION='[^']+';", "const VERSION='1.2.5';", s, count=1)
-
-          if 'tmLeaderTableBody' not in s:
-              old = "</tbody></table></div></div>`;anchor.insertAdjacentElement('afterend',el);"
-              new = "</tbody></table></div><div class=\"tm-archive-head\"><div><h4>🏆 Таблица лидеров от тройни</h4><p>Все 10 троек · новые рождения за последние 20 тиражей · сортировка по убыванию.</p></div></div><div class=\"tm-table-wrap\"><table class=\"tm-table tm-leader-table\"><thead><tr><th>Место</th><th>Тройня</th><th>Новых появлений</th><th>Статус</th></tr></thead><tbody id=\"tmLeaderTableBody\"></tbody></table></div></div>`;anchor.insertAdjacentElement('afterend',el);"
-              if old not in s:
-                  raise SystemExit('archive tail marker not found')
-              s = s.replace(old, new, 1)
-
-              old = "const tb=document.getElementById('tmArchive');"
-              new = "const rankBody=document.getElementById('tmLeaderTableBody');if(rankBody){const ranked=Object.entries(L.counts).sort((a,b)=>b[1]-a[1]||tripleSort(a[0],b[0]));let prevCount=null,place=0;rankBody.innerHTML=ranked.map(([t,n],i)=>{if(prevCount===null||n!==prevCount){place=i+1;prevCount=n;}const active=(s.serialLeaders||[]).some(x=>x.triple===t);const top=L.leaders.includes(t);const status=active?'🔥 серийный лидер':top?'🏆 лидер':'—';return `<tr><td><b>${place}</b></td><td class=\"tm-fact\">${t}</td><td>${n}</td><td class=\"${active||top?'hit':'neutral'}\">${status}</td></tr>`;}).join('');}const tb=document.getElementById('tmArchive');"
-              if old not in s:
-                  raise SystemExit('render archive marker not found')
-              s = s.replace(old, new, 1)
-
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('app.js')
-          s = p.read_text(encoding='utf-8')
-          s = re.sub(r"const APP_VERSION='[^']+';", "const APP_VERSION='1.2.5';", s, count=1)
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('index.html')
-          s = p.read_text(encoding='utf-8').replace('1.2.4', '1.2.5')
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('sw.js')
-          s = p.read_text(encoding='utf-8')
-          s = s.replace('yulia-top3-v1-2-4-triple-series-leader', 'yulia-top3-v1-2-5-triple-leader-table')
-          s = s.replace('1.2.4', '1.2.5')
-          p.write_text(s, encoding='utf-8')
-
-          p = Path('manifest.webmanifest')
-          s = p.read_text(encoding='utf-8').replace('1.2.4-triple-series-leader', '1.2.5-triple-leader-table')
-          p.write_text(s, encoding='utf-8')
-          PY
-
+      - name: Apply M4 all-family-links leader table fix
+        run: python3 patch-m4-leader-table.py
       - name: Commit update
         run: |
           git config user.name "github-actions[bot]"
@@ -69,7 +27,7 @@ jobs:
             echo "No changes"
             exit 0
           fi
-          git commit -m "TOP3 v1.2.5: add triple leaders table after forecast archive"
+          git commit -m "TOP3 v1.2.6: fix M4 all-family-links leader table"
           git fetch origin main
           git rebase origin/main
           git push origin HEAD:main
