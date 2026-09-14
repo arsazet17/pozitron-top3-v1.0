@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION='1.2.3';
+const APP_VERSION='1.2.4';
 const DB_NAME = 'yulia-top3-db';
 const DB_VERSION = 1;
 const STORE = 'draws';
