@@ -23,15 +23,13 @@ jobs:
 
           p = Path('triple-methods.js')
           s = p.read_text(encoding='utf-8')
-
-          # Module/app visible version for this rules update.
           s = re.sub(r"const VERSION='[^']+';", "const VERSION='1.2.4';", s, count=1)
 
           if 'tmSeriesLeader' not in s:
               old = " const births=[];if(packages.length)births.push('000');for(const r of [...normalM1,...normalM3])if(!births.includes(r.triple))births.push(r.triple);for(const r of newReady)if(!births.includes(r.triple))births.push(r.triple);"
-              new = """ const births=[];if(packages.length)births.push('000');for(const r of [...normalM1,...normalM3])if(!births.includes(r.triple))births.push(r.triple);for(const r of newReady)if(!births.includes(r.triple))births.push(r.triple);
- const additionBirths=uniq([...normalM1,...normalM3].map(r=>r.triple));diag.additionBirths=[...additionBirths];diag.seriesEvents=[];const priorStreaks=state.additionStreaks||{},additionStreaks={};for(const t of additionBirths){const prev=priorStreaks[t],consecutive=prev&&Number(prev.lastId)===current.id-1;additionStreaks[t]={len:consecutive?Number(prev.len||1)+1:1,lastId:current.id};}
- const serialLeaders=(state.serialLeaders||[]).map(x=>({...x,rem:Number(x.rem||0)-1})).filter(x=>x.rem>0);for(const [t,streak] of Object.entries(additionStreaks)){if(streak.len===2&&!serialLeaders.some(x=>x.triple===t)){serialLeaders.push({triple:t,rem:5,startedAt:current.id,rule:'addition-streak'});diag.seriesEvents.push(`${t}: сложением 2 тиража подряд → ЛИДЕР на 5 следующих тиражей`);}}"""
+              new = (" const births=[];if(packages.length)births.push('000');for(const r of [...normalM1,...normalM3])if(!births.includes(r.triple))births.push(r.triple);for(const r of newReady)if(!births.includes(r.triple))births.push(r.triple);\n"
+                     " const additionBirths=uniq([...normalM1,...normalM3].map(r=>r.triple));diag.additionBirths=[...additionBirths];diag.seriesEvents=[];const priorStreaks=state.additionStreaks||{},additionStreaks={};for(const t of additionBirths){const prev=priorStreaks[t],consecutive=prev&&Number(prev.lastId)===current.id-1;additionStreaks[t]={len:consecutive?Number(prev.len||1)+1:1,lastId:current.id};}\n"
+                     " const serialLeaders=(state.serialLeaders||[]).map(x=>({...x,rem:Number(x.rem||0)-1})).filter(x=>x.rem>0);for(const [t,streak] of Object.entries(additionStreaks)){if(streak.len===2&&!serialLeaders.some(x=>x.triple===t)){serialLeaders.push({triple:t,rem:5,startedAt:current.id,rule:'addition-streak'});diag.seriesEvents.push(`${t}: сложением 2 тиража подряд → ЛИДЕР на 5 следующих тиражей`);}}")
               if old not in s:
                   raise SystemExit('births marker not found')
               s = s.replace(old, new, 1)
@@ -55,20 +53,19 @@ jobs:
               s = s.replace(old, new, 1)
 
               old = "</article></div><div class=\"tm-diagnostics\">"
-              new = """</article></div><div class=\"tm-leader tm-series-leader\"><div><span>🔥 Серийный лидер · сложение подряд</span><strong id=\"tmSeriesLeader\">—</strong></div><div id=\"tmSeriesMeta\" class=\"tm-sub\">—</div><small>Если одна и та же XXX-тройня рождается именно сложением 2 тиража подряд или больше, после второго подряд она становится лидером на 5 следующих тиражей и идёт вместе с остальными тройнями. Carry/дубль не считается; 3-й и последующие подряд не перезапускают пяти-тиражное окно.</small></div><div class=\"tm-diagnostics\">"""
+              new = "</article></div><div class=\"tm-leader tm-series-leader\"><div><span>🔥 Серийный лидер · сложение подряд</span><strong id=\"tmSeriesLeader\">—</strong></div><div id=\"tmSeriesMeta\" class=\"tm-sub\">—</div><small>Если одна и та же XXX-тройня рождается именно сложением 2 тиража подряд или больше, после второго подряд она становится лидером на 5 следующих тиражей и идёт вместе с остальными тройнями. Carry/дубль не считается; 3-й и последующие подряд не перезапускают пяти-тиражное окно.</small></div><div class=\"tm-diagnostics\">"
               if old not in s:
                   raise SystemExit('panel marker not found')
               s = s.replace(old, new, 1)
 
               old = "setText('tmBlocks',"
-              new = """const sl=s.serialLeaders||[];setText('tmSeriesLeader',sl.length?sl.map(x=>`${x.triple} · rem${x.rem}/5`).join(' / '):'—');const streakRows=Object.entries(s.additionStreaks||{}).sort((a,b)=>tripleSort(a[0],b[0]));setText('tmSeriesMeta',streakRows.length?`Сложением сейчас: ${streakRows.map(([t,x])=>`${t} ×${x.len} подряд`).join(' · ')}`:'Новой серии сложением сейчас нет');setText('tmBlocks',"""
+              new = "const sl=s.serialLeaders||[];setText('tmSeriesLeader',sl.length?sl.map(x=>`${x.triple} · rem${x.rem}/5`).join(' / '):'—');const streakRows=Object.entries(s.additionStreaks||{}).sort((a,b)=>tripleSort(a[0],b[0]));setText('tmSeriesMeta',streakRows.length?`Сложением сейчас: ${streakRows.map(([t,x])=>`${t} ×${x.len} подряд`).join(' · ')}`:'Новой серии сложением сейчас нет');setText('tmBlocks',"
               if old not in s:
                   raise SystemExit('render marker not found')
               s = s.replace(old, new, 1)
 
           p.write_text(s, encoding='utf-8')
 
-          # Bump the app build so browsers/PWA cannot keep the old triples module.
           p = Path('app.js')
           s = p.read_text(encoding='utf-8')
           s = re.sub(r"const APP_VERSION='[^']+';", "const APP_VERSION='1.2.4';", s, count=1)
