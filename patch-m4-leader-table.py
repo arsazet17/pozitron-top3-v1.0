@@ -3,36 +3,42 @@ import re
 
 p = Path('triple-methods.js')
 s = p.read_text(encoding='utf-8')
-s = re.sub(r"const VERSION='[^']+';", "const VERSION='1.2.6';", s, count=1)
+s = re.sub(r"const VERSION='[^']+';", "const VERSION='1.2.7';", s, count=1)
 
-marker = "const SEED_ID=267958;"
-if 'M4_LEADER_SNAPSHOT' not in s:
-    insert = """const M4_LEADER_SNAPSHOT={totalLinks:41,rows:[
- {place:1,triple:'888',links:6,share:'14.6%',sources:6,receivers:6,avgLag:'15.67',maxLag:30},
- {place:2,triple:'111',links:5,share:'12.2%',sources:4,receivers:5,avgLag:'10.20',maxLag:32},
- {place:2,triple:'444',links:5,share:'12.2%',sources:5,receivers:5,avgLag:'11.40',maxLag:29},
- {place:2,triple:'777',links:5,share:'12.2%',sources:5,receivers:5,avgLag:'14.20',maxLag:21},
- {place:2,triple:'999',links:5,share:'12.2%',sources:5,receivers:5,avgLag:'9.60',maxLag:15},
- {place:3,triple:'222',links:4,share:'9.8%',sources:4,receivers:4,avgLag:'10.50',maxLag:20},
- {place:3,triple:'666',links:4,share:'9.8%',sources:4,receivers:4,avgLag:'15.75',maxLag:20},
- {place:4,triple:'000',links:3,share:'7.3%',sources:3,receivers:3,avgLag:'15.67',maxLag:28},
- {place:4,triple:'333',links:3,share:'7.3%',sources:3,receivers:3,avgLag:'15.33',maxLag:23},
- {place:5,triple:'555',links:1,share:'2.4%',sources:1,receivers:1,avgLag:'4.00',maxLag:4}
-]};
-"""
+engine = r'''const M4_TRIPLES=Object.freeze(['111','222','333','444','555','666','777','888','999','000']);
+function m4Family(v){return padCode(v).split('').sort().join('');}
+function m4IsTriple(v){return /^([0-9])\1\1$/.test(String(v||''));}
+function m4ComplementCode(source,triple){const target=Number(triple[0]),src=padCode(source);return src.split('').map(x=>String((target-Number(x)+10)%10)).join('');}
+function computeM4AllLinks(records=[]){
+ const real=(records||[]).map(r=>{const raw=(r?.code!=null?r.code:((r?.a!=null&&r?.b!=null&&r?.c!=null)?`${r.a}${r.b}${r.c}`:''));return{id:Number(r?.id),date:String(r?.date||''),time:String(r?.time||''),code:padCode(raw)};}).filter(r=>Number.isInteger(r.id)&&/^\d{3}$/.test(r.code)).sort((a,b)=>a.id-b.id);
+ let anchorIndex=-1;for(let i=real.length-1;i>=0;i--)if(m4IsTriple(real[i].code)){anchorIndex=i;break;}
+ const anchor=anchorIndex>=0?real[anchorIndex]:null,cycleRows=anchorIndex>=0?real.slice(anchorIndex+1):[];
+ const sourceFamilies=Object.fromEntries(M4_TRIPLES.map(t=>[t,new Map()])),links=[];
+ cycleRows.forEach((row,rowIndex)=>{
+  const ff=m4Family(row.code);
+  for(const t of M4_TRIPLES){const matches=sourceFamilies[t].get(ff)||[];for(const src of matches)links.push({triple:t,sourceId:src.id,recipientId:row.id,lag:rowIndex-src.index});}
+  for(const t of M4_TRIPLES){const addedFamily=m4Family(m4ComplementCode(row.code,t)),m=sourceFamilies[t];if(!m.has(addedFamily))m.set(addedFamily,[]);m.get(addedFamily).push({id:row.id,index:rowIndex});}
+ });
+ const total=links.length;
+ const stats=M4_TRIPLES.map((triple,order)=>{const own=links.filter(x=>x.triple===triple),count=own.length,sourceCount=new Set(own.map(x=>x.sourceId)).size,recipientCount=new Set(own.map(x=>x.recipientId)).size,avgLag=count?own.reduce((a,b)=>a+b.lag,0)/count:null,maxLag=count?Math.max(...own.map(x=>x.lag)):null;return{triple,order,count,share:total?count*100/total:0,sourceCount,recipientCount,avgLag,maxLag};});
+ const sorted=[...stats].sort((a,b)=>b.count-a.count||a.order-b.order);let lastCount=null,rank=0;const ranking=sorted.map(x=>{if(x.count!==lastCount){rank++;lastCount=x.count;}return{...x,rank};});
+ return{anchor,start:cycleRows[0]||null,last:cycleRows.at(-1)||anchor||null,cycleRows:cycleRows.length,total,ranking};
+}'''
+
+if 'const M4_LEADER_SNAPSHOT=' in s:
+    s, n = re.subn(r"const M4_LEADER_SNAPSHOT=\{.*?\n\]};", engine, s, count=1, flags=re.S)
+    if n != 1:
+        raise SystemExit(f'M4 static block replacements={n}')
+elif 'function computeM4AllLinks(' not in s:
+    marker = "const SEED_ID=267958;"
     if marker not in s:
         raise SystemExit('SEED marker not found')
-    s = s.replace(marker, marker + '\n' + insert, 1)
+    s = s.replace(marker, marker+'\n'+engine, 1)
 
-old_html = '<div class="tm-archive-head"><div><h4>🏆 Таблица лидеров от тройни</h4><p>Все 10 троек · новые рождения за последние 20 тиражей · сортировка по убыванию.</p></div></div><div class="tm-table-wrap"><table class="tm-table tm-leader-table"><thead><tr><th>Место</th><th>Тройня</th><th>Новых появлений</th><th>Статус</th></tr></thead><tbody id="tmLeaderTableBody"></tbody></table></div>'
-new_html = '<div class="tm-archive-head"><div><h4>🏆 Лидеры от тройни · ВСЕ СЕМЕЙНЫЕ СВЯЗИ</h4><p>Текущий M4-цикл · считаются все семейные связи, а не рождения за последние 20 тиражей. Всего связей: <b id="tmM4TotalLinks">41</b>.</p></div></div><div class="tm-table-wrap"><table class="tm-table tm-leader-table"><thead><tr><th>Место</th><th>Тройня</th><th>Все связи</th><th>Доля</th><th>Источников</th><th>Фактов-получателей</th><th>Средний лаг</th><th>Макс. лаг</th></tr></thead><tbody id="tmLeaderTableBody"></tbody></table></div>'
-if old_html in s:
-    s = s.replace(old_html, new_html, 1)
-elif 'Лидеры от тройни · ВСЕ СЕМЕЙНЫЕ СВЯЗИ' not in s:
-    raise SystemExit('leader html marker not found')
+s = s.replace('<p>Текущий M4-цикл · считаются все семейные связи, а не рождения за последние 20 тиражей. Всего связей: <b id="tmM4TotalLinks">41</b>.</p>', '<p id="tmM4Summary">Расчёт текущего M4-цикла…</p>')
 
 pattern = re.compile(r"const rankBody=document\.getElementById\('tmLeaderTableBody'\);if\(rankBody\)\{.*?\}const tb=document\.getElementById\('tmArchive'\);", re.S)
-replacement = "const rankBody=document.getElementById('tmLeaderTableBody');if(rankBody){setText('tmM4TotalLinks',String(M4_LEADER_SNAPSHOT.totalLinks));rankBody.innerHTML=M4_LEADER_SNAPSHOT.rows.map(r=>`<tr><td><b>${r.place}</b></td><td class=\"tm-fact\">${r.triple}</td><td><b>${r.links}</b></td><td>${r.share}</td><td>${r.sources}</td><td>${r.receivers}</td><td>${r.avgLag}</td><td>${r.maxLag}</td></tr>`).join('');}const tb=document.getElementById('tmArchive');"
+replacement = "const rankBody=document.getElementById('tmLeaderTableBody');if(rankBody){const m4=computeM4AllLinks(sourceDraws());const anchor=m4.anchor,start=m4.start;setText('tmM4Summary',anchor?`Опорная тройня: ${anchor.code} · ${displayDate(anchor.date)} ${anchor.time} · старт цикла: ${start?`${displayDate(start.date)} ${start.time}`:'—'} · тиражей в текущем цикле: ${m4.cycleRows} · всего связей: ${m4.total}`:'Опорная тройня не найдена');rankBody.innerHTML=m4.ranking.map(r=>`<tr><td><b>${r.rank}</b></td><td class=\"tm-fact\">${r.triple}</td><td><b>${r.count}</b></td><td>${r.share.toFixed(1)}%</td><td>${r.sourceCount}</td><td>${r.recipientCount}</td><td>${r.avgLag==null?'—':r.avgLag.toFixed(2)}</td><td>${r.maxLag==null?'—':r.maxLag}</td></tr>`).join('');}const tb=document.getElementById('tmArchive');"
 s, n = pattern.subn(replacement, s, count=1)
 if n != 1:
     raise SystemExit(f'render marker replacements={n}')
@@ -40,17 +46,17 @@ p.write_text(s, encoding='utf-8')
 
 p = Path('app.js')
 s = p.read_text(encoding='utf-8')
-s = re.sub(r"const APP_VERSION='[^']+';", "const APP_VERSION='1.2.6';", s, count=1)
+s = re.sub(r"const APP_VERSION='[^']+';", "const APP_VERSION='1.2.7';", s, count=1)
 p.write_text(s, encoding='utf-8')
 
 p = Path('index.html')
-s = p.read_text(encoding='utf-8').replace('1.2.5', '1.2.6')
+s = p.read_text(encoding='utf-8').replace('1.2.6', '1.2.7')
 p.write_text(s, encoding='utf-8')
 
 p = Path('sw.js')
-s = p.read_text(encoding='utf-8').replace('yulia-top3-v1-2-5-triple-leader-table', 'yulia-top3-v1-2-6-m4-family-links').replace('1.2.5', '1.2.6')
+s = p.read_text(encoding='utf-8').replace('yulia-top3-v1-2-6-m4-family-links', 'yulia-top3-v1-2-7-m4-live-cycle').replace('1.2.6', '1.2.7')
 p.write_text(s, encoding='utf-8')
 
 p = Path('manifest.webmanifest')
-s = p.read_text(encoding='utf-8').replace('1.2.5-triple-leader-table', '1.2.6-m4-family-links')
+s = p.read_text(encoding='utf-8').replace('1.2.6-m4-family-links', '1.2.7-m4-live-cycle').replace('1.2.6', '1.2.7')
 p.write_text(s, encoding='utf-8')
