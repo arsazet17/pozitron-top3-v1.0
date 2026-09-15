@@ -26,7 +26,7 @@ function computeM4AllLinks(records=[]){
 }'''
 
 if 'const M4_LEADER_SNAPSHOT=' in s:
-    s, n = re.subn(r"const M4_LEADER_SNAPSHOT=\{.*?\n\]};", engine, s, count=1, flags=re.S)
+    s, n = re.subn(r"const M4_LEADER_SNAPSHOT=\{.*?\n\]};", lambda m: engine, s, count=1, flags=re.S)
     if n != 1:
         raise SystemExit(f'M4 static block replacements={n}')
 elif 'function computeM4AllLinks(' not in s:
@@ -39,7 +39,7 @@ s = s.replace('<p>Текущий M4-цикл · считаются все сем
 
 pattern = re.compile(r"const rankBody=document\.getElementById\('tmLeaderTableBody'\);if\(rankBody\)\{.*?\}const tb=document\.getElementById\('tmArchive'\);", re.S)
 replacement = "const rankBody=document.getElementById('tmLeaderTableBody');if(rankBody){const m4=computeM4AllLinks(sourceDraws());const anchor=m4.anchor,start=m4.start;setText('tmM4Summary',anchor?`Опорная тройня: ${anchor.code} · ${displayDate(anchor.date)} ${anchor.time} · старт цикла: ${start?`${displayDate(start.date)} ${start.time}`:'—'} · тиражей в текущем цикле: ${m4.cycleRows} · всего связей: ${m4.total}`:'Опорная тройня не найдена');rankBody.innerHTML=m4.ranking.map(r=>`<tr><td><b>${r.rank}</b></td><td class=\"tm-fact\">${r.triple}</td><td><b>${r.count}</b></td><td>${r.share.toFixed(1)}%</td><td>${r.sourceCount}</td><td>${r.recipientCount}</td><td>${r.avgLag==null?'—':r.avgLag.toFixed(2)}</td><td>${r.maxLag==null?'—':r.maxLag}</td></tr>`).join('');}const tb=document.getElementById('tmArchive');"
-s, n = pattern.subn(replacement, s, count=1)
+s, n = pattern.subn(lambda m: replacement, s, count=1)
 if n != 1:
     raise SystemExit(f'render marker replacements={n}')
 p.write_text(s, encoding='utf-8')
