@@ -2,10 +2,10 @@
   "schema": 4,
   "fullArchive": true,
   "source": "Полный архив TOP-3 · официальный API Столото (archive+info-new)",
-  "updatedAt": "2026-09-15T07:01:00.944Z",
-  "latest": 268084,
+  "updatedAt": "2026-09-15T07:30:50.724Z",
+  "latest": 268085,
   "archiveFrom": 247987,
-  "archiveTo": 268084,
+  "archiveTo": 268085,
   "regularTimes": [
     "00:25",
     "00:55",
@@ -1423,6 +1423,14 @@
     }
   ],
   "draws": [
+    {
+      "id": 268085,
+      "date": "15.09.26",
+      "time": "10:25",
+      "a": 2,
+      "b": 0,
+      "c": 0
+    },
     {
       "id": 268084,
       "date": "15.09.26",
