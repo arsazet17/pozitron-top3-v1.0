@@ -1,62 +1,83 @@
 from pathlib import Path
 import re
 
+TARGET_VERSION = '1.2.8'
+
 p = Path('triple-methods.js')
 s = p.read_text(encoding='utf-8')
-s = re.sub(r"const VERSION='[^']+';", "const VERSION='1.2.7';", s, count=1)
+s = re.sub(r"const VERSION='[^']+';", f"const VERSION='{TARGET_VERSION}';", s, count=1)
 
-engine = r'''const M4_TRIPLES=Object.freeze(['111','222','333','444','555','666','777','888','999','000']);
-function m4Family(v){return padCode(v).split('').sort().join('');}
-function m4IsTriple(v){return /^([0-9])\1\1$/.test(String(v||''));}
-function m4ComplementCode(source,triple){const target=Number(triple[0]),src=padCode(source);return src.split('').map(x=>String((target-Number(x)+10)%10)).join('');}
-function computeM4AllLinks(records=[]){
+# Separate MAYACHOK forecast.  It intentionally does not merge into the old M1/M2/M3 FROZEN.
+# Rule: exact digit order only; chronological 50-draw window; deterministic NO-REUSE pairing:
+# earliest free source -> first later free exact second -> lock both rows.
+if 'MAYACHOK_WATCH_V2' not in s:
+    marker = "const M2_MAP={"
+    block = r'''// MAYACHOK · separate forecast · exact collapses / NO-REUSE V2.
+// Frozen watch matrix from the V2 archive re-check. This signal is independent of M1/M2/M3.
+const MAYACHOK_WATCH_V2=Object.freeze([
+ ['111',19],['666',2],['222',17],['999',20],['555',4],['888',4],['888',20],
+ ['777',13],['222',16],['777',7],['999',14],['999',4],['555',6]
+]);
+const MAYACHOK_WATCH_SET=new Set(MAYACHOK_WATCH_V2.map(([t,d])=>`${t}@${d}`));
+function computeMayachokV2(records=[]){
  const real=(records||[]).map(r=>{const raw=(r?.code!=null?r.code:((r?.a!=null&&r?.b!=null&&r?.c!=null)?`${r.a}${r.b}${r.c}`:''));return{id:Number(r?.id),date:String(r?.date||''),time:String(r?.time||''),code:padCode(raw)};}).filter(r=>Number.isInteger(r.id)&&/^\d{3}$/.test(r.code)).sort((a,b)=>a.id-b.id);
- let anchorIndex=-1;for(let i=real.length-1;i>=0;i--)if(m4IsTriple(real[i].code)){anchorIndex=i;break;}
- const anchor=anchorIndex>=0?real[anchorIndex]:null,cycleRows=anchorIndex>=0?real.slice(anchorIndex+1):[];
- const sourceFamilies=Object.fromEntries(M4_TRIPLES.map(t=>[t,new Map()])),links=[];
- cycleRows.forEach((row,rowIndex)=>{
-  const ff=m4Family(row.code);
-  for(const t of M4_TRIPLES){const matches=sourceFamilies[t].get(ff)||[];for(const src of matches)links.push({triple:t,sourceId:src.id,recipientId:row.id,lag:rowIndex-src.index});}
-  for(const t of M4_TRIPLES){const addedFamily=m4Family(m4ComplementCode(row.code,t)),m=sourceFamilies[t];if(!m.has(addedFamily))m.set(addedFamily,[]);m.get(addedFamily).push({id:row.id,index:rowIndex});}
- });
- const total=links.length;
- const stats=M4_TRIPLES.map((triple,order)=>{const own=links.filter(x=>x.triple===triple),count=own.length,sourceCount=new Set(own.map(x=>x.sourceId)).size,recipientCount=new Set(own.map(x=>x.recipientId)).size,avgLag=count?own.reduce((a,b)=>a+b.lag,0)/count:null,maxLag=count?Math.max(...own.map(x=>x.lag)):null;return{triple,order,count,share:total?count*100/total:0,sourceCount,recipientCount,avgLag,maxLag};});
- const sorted=[...stats].sort((a,b)=>b.count-a.count||a.order-b.order);let lastCount=null,rank=0;const ranking=sorted.map(x=>{if(x.count!==lastCount){rank++;lastCount=x.count;}return{...x,rank};});
- return{anchor,start:cycleRows[0]||null,last:cycleRows.at(-1)||anchor||null,cycleRows:cycleRows.length,total,ranking};
-}'''
+ const window=real.slice(-50),used=new Set(),pairs=[];
+ for(let i=0;i<window.length;i++){
+  if(used.has(i))continue;
+  for(let j=i+1;j<window.length;j++){
+   if(used.has(j))continue;
+   const exact=add(window[i].code,window[j].code);
+   if(!isTriple(exact))continue;
+   used.add(i);used.add(j);
+   const distance=window.length-j;
+   pairs.push({triple:exact,distance,source:window[i],second:window[j]});
+   break;
+  }
+ }
+ const active=pairs.filter(x=>x.distance>=1&&x.distance<=20).sort((a,b)=>a.distance-b.distance||tripleSort(a.triple,b.triple));
+ const matches=active.filter(x=>MAYACHOK_WATCH_SET.has(`${x.triple}@${x.distance}`));
+ return{signal:matches.length>0,matches,active,pairs,windowSize:window.length};
+}
 
-if 'const M4_LEADER_SNAPSHOT=' in s:
-    s, n = re.subn(r"const M4_LEADER_SNAPSHOT=\{.*?\n\]};", lambda m: engine, s, count=1, flags=re.S)
-    if n != 1:
-        raise SystemExit(f'M4 static block replacements={n}')
-elif 'function computeM4AllLinks(' not in s:
-    marker = "const SEED_ID=267958;"
+'''
     if marker not in s:
-        raise SystemExit('SEED marker not found')
-    s = s.replace(marker, marker+'\n'+engine, 1)
+        raise SystemExit('MAYACHOK insert marker not found')
+    s = s.replace(marker, block + marker, 1)
 
-s = s.replace('<p>Текущий M4-цикл · считаются все семейные связи, а не рождения за последние 20 тиражей. Всего связей: <b id="tmM4TotalLinks">41</b>.</p>', '<p id="tmM4Summary">Расчёт текущего M4-цикла…</p>')
+# Put MAYACHOK as its own forecast card immediately before M1/M2/M3.
+if 'id="tmMayachok"' not in s:
+    marker = '<div class="tm-method-grid"><article class="tm-method"><header><b>M1</b>'
+    card = '<div class="tm-leader tm-mayachok"><div><span>🚨 МАЯЧОК · ОТДЕЛЬНЫЙ ПРОГНОЗ</span><strong id="tmMayachok">—</strong></div><div id="tmMayachokMeta" class="tm-sub">—</div><small>Точный порядок цифр · NO-REUSE V2 · окно 50 завершённых тиражей. МАЯЧОК отвечает только «ТРОЙНЯ / НЕТ СИГНАЛА» и не смешивается с FROZEN M1/M2/M3.</small></div>'
+    if marker not in s:
+        raise SystemExit('MAYACHOK UI marker not found')
+    s = s.replace(marker, card + marker, 1)
 
-pattern = re.compile(r"const rankBody=document\.getElementById\('tmLeaderTableBody'\);if\(rankBody\)\{.*?\}const tb=document\.getElementById\('tmArchive'\);", re.S)
-replacement = "const rankBody=document.getElementById('tmLeaderTableBody');if(rankBody){const m4=computeM4AllLinks(sourceDraws());const anchor=m4.anchor,start=m4.start;setText('tmM4Summary',anchor?`Опорная тройня: ${anchor.code} · ${displayDate(anchor.date)} ${anchor.time} · старт цикла: ${start?`${displayDate(start.date)} ${start.time}`:'—'} · тиражей в текущем цикле: ${m4.cycleRows} · всего связей: ${m4.total}`:'Опорная тройня не найдена');rankBody.innerHTML=m4.ranking.map(r=>`<tr><td><b>${r.rank}</b></td><td class=\"tm-fact\">${r.triple}</td><td><b>${r.count}</b></td><td>${r.share.toFixed(1)}%</td><td>${r.sourceCount}</td><td>${r.recipientCount}</td><td>${r.avgLag==null?'—':r.avgLag.toFixed(2)}</td><td>${r.maxLag==null?'—':r.maxLag}</td></tr>`).join('');}const tb=document.getElementById('tmArchive');"
-s, n = pattern.subn(lambda m: replacement, s, count=1)
-if n != 1:
-    raise SystemExit(f'render marker replacements={n}')
+if "const beacon=computeMayachokV2(sourceDraws());" not in s:
+    marker = "setText('tmM1',fmtList(s.m1));"
+    render = "const beacon=computeMayachokV2(sourceDraws());setText('tmMayachok',beacon.signal?'🚨 СИГНАЛ: ТРОЙНЯ':'— НЕТ СИГНАЛА');const beaconMeta=beacon.matches.length?`Совпали: ${beacon.matches.map(x=>`${x.triple} · дистанция ${x.distance} · ${x.source.code}+${x.second.code}=${x.triple}`).join(' · ')}`:(beacon.active.length?`Активные разрешённые NO-REUSE схлопывания: ${beacon.active.map(x=>`${x.triple}@${x.distance}`).join(' · ')} · совпадений с frozen-матрицей МАЯЧКА нет`:'В дистанциях 1–20 разрешённых NO-REUSE схлопываний нет');setText('tmMayachokMeta',beaconMeta);const beaconEl=document.getElementById('tmMayachok');if(beaconEl)beaconEl.className=beacon.signal?'hit':'neutral';"
+    if marker not in s:
+        raise SystemExit('MAYACHOK render marker not found')
+    s = s.replace(marker, render + marker, 1)
+
 p.write_text(s, encoding='utf-8')
 
 p = Path('app.js')
 s = p.read_text(encoding='utf-8')
-s = re.sub(r"const APP_VERSION='[^']+';", "const APP_VERSION='1.2.7';", s, count=1)
+s = re.sub(r"const APP_VERSION='[^']+';", f"const APP_VERSION='{TARGET_VERSION}';", s, count=1)
 p.write_text(s, encoding='utf-8')
 
 p = Path('index.html')
-s = p.read_text(encoding='utf-8').replace('1.2.6', '1.2.7')
+s = p.read_text(encoding='utf-8')
+s = re.sub(r'1\.2\.\d+', TARGET_VERSION, s)
 p.write_text(s, encoding='utf-8')
 
 p = Path('sw.js')
-s = p.read_text(encoding='utf-8').replace('yulia-top3-v1-2-6-m4-family-links', 'yulia-top3-v1-2-7-m4-live-cycle').replace('1.2.6', '1.2.7')
+s = p.read_text(encoding='utf-8')
+s = re.sub(r"const CACHE_NAME = 'yulia-top3-[^']+';", "const CACHE_NAME = 'yulia-top3-v1-2-8-mayachok-v2';", s, count=1)
+s = re.sub(r'1\.2\.\d+', TARGET_VERSION, s)
 p.write_text(s, encoding='utf-8')
 
 p = Path('manifest.webmanifest')
-s = p.read_text(encoding='utf-8').replace('1.2.6-m4-family-links', '1.2.7-m4-live-cycle').replace('1.2.6', '1.2.7')
+s = p.read_text(encoding='utf-8')
+s = re.sub(r'"start_url":\s*"[^"]+"', '"start_url": "./?v=1.2.8-mayachok-v2"', s, count=1)
 p.write_text(s, encoding='utf-8')
