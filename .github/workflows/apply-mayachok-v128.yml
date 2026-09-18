@@ -1,0 +1,94 @@
+name: Add MAYACHOK separate triple forecast
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-mayachok-v128.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add MAYACHOK V2 card and live forecast
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p=Path('triple-methods.js')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace("const VERSION='1.2.7';","const VERSION='1.2.8';",1)
+
+          marker="const M2_MAP={"
+          if 'MAYACHOK_WATCH_V2' not in s:
+              block=r'''// MAYACHOK — separate experimental forecast, exact order + NO-REUSE V2.
+// Frozen watch-list comes from a full V2 archive re-check: top raw type×distance candidates
+// that kept lift > 1 in both chronological TRAIN 70% and TEST 30%. It NEVER merges into main FROZEN.
+const MAYACHOK_WATCH_V2=Object.freeze([
+ ['111',19],['666',2],['222',17],['999',20],['555',4],['888',4],['888',20],
+ ['777',13],['222',16],['777',7],['999',14],['999',4],['555',6]
+]);
+const MAYACHOK_WATCH_SET=new Set(MAYACHOK_WATCH_V2.map(([t,d])=>`${t}@${d}`));
+function computeMayachokV2(records=[]){
+ const real=(records||[]).map(r=>{const raw=(r?.code!=null?r.code:((r?.a!=null&&r?.b!=null&&r?.c!=null)?`${r.a}${r.b}${r.c}`:''));return{id:Number(r?.id),date:String(r?.date||''),time:String(r?.time||''),code:padCode(raw)};}).filter(r=>Number.isInteger(r.id)&&/^\d{3}$/.test(r.code)).sort((a,b)=>a.id-b.id);
+ const window=real.slice(-50),used=new Set(),pairs=[];
+ for(let i=0;i<window.length;i++){
+  if(used.has(i))continue;
+  for(let j=i+1;j<window.length;j++){
+   if(used.has(j))continue;
+   const exact=add(window[i].code,window[j].code);
+   if(!isTriple(exact))continue;
+   used.add(i);used.add(j);
+   const distance=window.length-j;
+   pairs.push({triple:exact,distance,source:window[i],second:window[j]});
+   break;
+  }
+ }
+ const active=pairs.filter(x=>x.distance>=1&&x.distance<=20).sort((a,b)=>a.distance-b.distance||tripleSort(a.triple,b.triple));
+ const matches=active.filter(x=>MAYACHOK_WATCH_SET.has(`${x.triple}@${x.distance}`));
+ return{signal:matches.length>0,matches,active,pairs,windowSize:window.length};
+}
+
+'''
+              if marker not in s: raise SystemExit('M2 marker not found')
+              s=s.replace(marker,block+marker,1)
+
+          old='<div class="tm-method-grid"><article class="tm-method"><header><b>M1</b>'
+          if 'tmMayachok' not in s:
+              # Insert a separate MAYACHOK card immediately before the M1/M2/M3 grid.
+              new='<div class="tm-leader tm-mayachok"><div><span>🚨 МАЯЧОК · отдельный прогноз</span><strong id="tmMayachok">—</strong></div><div id="tmMayachokMeta" class="tm-sub">—</div><small>Точный порядок цифр · NO-REUSE V2 · окно 50 завершённых тиражей. Прогноз только на факт «будет тройня / нет сигнала» и НЕ входит в общий FROZEN M1/M2/M3.</small></div><div class="tm-method-grid"><article class="tm-method"><header><b>M1</b>'
+              if old not in s: raise SystemExit('method grid marker not found')
+              s=s.replace(old,new,1)
+
+          render_marker="setText('tmM1',fmtList(s.m1));"
+          if "computeMayachokV2(sourceDraws())" not in s:
+              render_code="""const beacon=computeMayachokV2(sourceDraws());setText('tmMayachok',beacon.signal?'🚨 СИГНАЛ: ТРОЙНЯ':'— НЕТ СИГНАЛА');const beaconMeta=beacon.matches.length?`Совпали: ${beacon.matches.map(x=>`${x.triple} · дистанция ${x.distance} (${x.source.code}+${x.second.code}=${x.triple})`).join(' · ')}`:(beacon.active.length?`Активные NO-REUSE схлопывания 1–20: ${beacon.active.map(x=>`${x.triple}@${x.distance}`).join(' · ')} · ни одно не вошло в frozen-матрицу МАЯЧКА`:'В последних 20 дистанциях разрешённых NO-REUSE схлопываний нет');setText('tmMayachokMeta',beaconMeta);const beaconEl=document.getElementById('tmMayachok');if(beaconEl)beaconEl.className=beacon.signal?'hit':'neutral';"""
+              if render_marker not in s: raise SystemExit('render marker not found')
+              s=s.replace(render_marker,render_code+render_marker,1)
+
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('app.js'); s=p.read_text(encoding='utf-8'); s=s.replace("const APP_VERSION='1.2.7';","const APP_VERSION='1.2.8';",1); p.write_text(s,encoding='utf-8')
+          p=Path('index.html'); s=p.read_text(encoding='utf-8').replace('1.2.7','1.2.8'); p.write_text(s,encoding='utf-8')
+          p=Path('sw.js'); s=p.read_text(encoding='utf-8').replace("yulia-top3-v1-2-7-m4-live-cycle","yulia-top3-v1-2-8-mayachok-v2").replace('1.2.7','1.2.8'); p.write_text(s,encoding='utf-8')
+          p=Path('manifest.webmanifest'); s=p.read_text(encoding='utf-8').replace('1.2.7','1.2.8').replace('1.2.6','1.2.8'); p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add triple-methods.js app.js index.html sw.js manifest.webmanifest
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "TOP3 v1.2.8: add separate MAYACHOK triple forecast"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
