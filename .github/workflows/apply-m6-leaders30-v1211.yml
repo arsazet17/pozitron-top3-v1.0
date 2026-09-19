@@ -1,0 +1,59 @@
+name: Add M6 last-30 forecast leaders table
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-m6-leaders30-v1211.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add M6 leaders for last 30 draws
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          VER='1.2.11'
+          p=Path('triple-methods.js')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r"const VERSION='[^']+';", f"const VERSION='{VER}';", s, count=1)
+
+          old='<thead><tr><th>Target</th><th>Факт-источник</th><th>M6 Frozen</th><th>Факт target / проверка</th></tr></thead><tbody id="tmM6Archive"></tbody></table></div></div>'
+          new='<thead><tr><th>Target</th><th>Факт-источник</th><th>M6 Frozen</th><th>Факт target / проверка</th></tr></thead><tbody id="tmM6Archive"></tbody></table></div><div class="tm-archive-head" style="margin-top:12px"><div><h4>🏆 Лидеры M6-прогноза · последние 30 тиражей</h4><p id="tmM6LeadersSummary">Считаются только заранее сформированные one-shot M6 Frozen по последним 30 фактам-источникам.</p></div></div><div class="tm-table-wrap"><table class="tm-table"><thead><tr><th>Место</th><th>Тройня</th><th>Прогнозов</th><th>Доля от 30</th><th>HIT</th></tr></thead><tbody id="tmM6Leaders30"></tbody></table></div></div>'
+          if old not in s:
+              raise SystemExit('M6 archive html marker not found')
+          s=s.replace(old,new,1)
+
+          marker="const m6El=document.getElementById('tmM6');"
+          code="""const m6LeaderBody=document.getElementById('tmM6Leaders30');if(m6LeaderBody){const win=(m6.history||[]).slice(-30),counts=Object.fromEntries(Array.from({length:10},(_,i)=>[`${i}${i}${i}`,0])),hits=Object.fromEntries(Array.from({length:10},(_,i)=>[`${i}${i}${i}`,0]));for(const row of win){for(const t of row.triples||[])if(t in counts)counts[t]++;if(row.targetFact){for(const t of row.triples||[])if(t===row.targetFact.code&&t in hits)hits[t]++;}}const ranked=Object.entries(counts).sort((a,b)=>b[1]-a[1]||Number(a[0][0])-Number(b[0][0]));let last=null,place=0;m6LeaderBody.innerHTML=ranked.map(([t,n],i)=>{if(last===null||n!==last){place=i+1;last=n;}return `<tr><td><b>${place}</b></td><td class=\"tm-fact\">${t}</td><td><b>${n}</b></td><td>${((n/30)*100).toFixed(1)}%</td><td>${hits[t]}</td></tr>`;}).join('');const leadCount=ranked[0]?.[1]||0,leaders=ranked.filter(x=>x[1]===leadCount&&leadCount>0).map(x=>x[0]);setText('tmM6LeadersSummary',`Окно: ${win.length}/30 последних M6 фактов-источников · лидер: ${leaders.length?leaders.join(' / '):'—'}${leadCount?` ×${leadCount}`:''} · каждая XXX считается один раз на один M6 Frozen.`);}const m6El=document.getElementById('tmM6');"""
+          if marker not in s:
+              raise SystemExit('M6 render marker not found')
+          s=s.replace(marker,code,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('app.js'); s=p.read_text(encoding='utf-8'); s=re.sub(r"const APP_VERSION='[^']+';",f"const APP_VERSION='{VER}';",s,count=1); p.write_text(s,encoding='utf-8')
+          p=Path('index.html'); s=p.read_text(encoding='utf-8'); s=re.sub(r'v1\.2\.10',f'v{VER}',s); s=s.replace('1.2.10',VER); p.write_text(s,encoding='utf-8')
+          p=Path('sw.js'); s=p.read_text(encoding='utf-8'); s=re.sub(r"const CACHE_NAME = '[^']+';",f"const CACHE_NAME = 'yulia-top3-v1-2-11-m6-leaders30';",s,count=1); s=s.replace('1.2.10',VER); p.write_text(s,encoding='utf-8')
+          p=Path('manifest.webmanifest'); s=p.read_text(encoding='utf-8').replace('1.2.10',VER).replace('1.2.9',VER); p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit M6 leaders table
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add triple-methods.js app.js index.html sw.js manifest.webmanifest
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "TOP3 v1.2.11: M6 forecast leaders for last 30 draws"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
