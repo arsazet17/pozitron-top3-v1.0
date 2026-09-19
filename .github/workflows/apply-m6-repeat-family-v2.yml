@@ -1,0 +1,80 @@
+name: Apply M6 REPEAT-FAMILY-150 V2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-m6-repeat-family-v2.yml'
+      - 'm6-repeat-family-v2.js'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add M6 V2 to triples UI and frozen display
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          VER='1.2.10'
+          p=Path('triple-methods.js')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r"const VERSION='[^']+';",f"const VERSION='{VER}';",s,count=1)
+
+          if 'tmM6Archive' not in s:
+              marker='<div class="tm-method-grid"><article class="tm-method"><header><b>M1</b>'
+              card='''<div class="tm-leader tm-m6"><div><span>🧬 M6 · REPEAT-FAMILY-150 V2</span><strong id="tmM6">—</strong></div><div id="tmM6Meta" class="tm-sub">—</div><small>ACTIVE repeat-family живёт 150 тиражей и после каждого нового факта складывается с family НОВОЙ комбинации. Только XXX, one-shot на следующий тираж. ACTIVE family между собой не складываются. M5 EXCLUSIVE EXACT имеет приоритет.</small><div class="tm-table-wrap" style="margin-top:10px"><table class="tm-table"><thead><tr><th>Target</th><th>Факт-источник</th><th>M6 Frozen</th><th>Факт target / проверка</th></tr></thead><tbody id="tmM6Archive"></tbody></table></div></div>'''+marker
+              if marker not in s: raise SystemExit('method grid marker not found')
+              s=s.replace(marker,card,1)
+
+          old="setText('tmFrozen',fmtList(s.frozen));"
+          if old in s and 'Top3M6V2' not in s:
+              new="const m6=window.Top3M6V2?.compute(sourceDraws(),{exactOccupiedDraws:window.TOP3_M5_EXACT_OCCUPIED_DRAWS||[]})||{current:null,history:[],occupied:[]};const m6Signals=m6.current?.triples||[];setText('tmFrozen',fmtList([...(s.frozen||[]),...m6Signals]));"
+              s=s.replace(old,new,1)
+
+          render_marker="setText('tmM1',fmtList(s.m1));"
+          if 'tmM6Meta' in s and 'm6.current?.details' not in s:
+              code="""const m6c=m6.current;setText('tmM6',m6c?.triples?.length?m6c.triples.join(' / '):'— НЕТ СИГНАЛА');const m6Paths=m6c?.details?.length?m6c.details.map(x=>`family${x.activeFamily} + family${x.currentFamily} → ${x.triple}`).join(' · '):'XXX-схлопываний нет';const m6Active=m6c?.active?.length?m6c.active.map(x=>`family${x.family}→№${x.activeUntil}`).join(' · '):'активных repeat-family нет';setText('tmM6Meta',m6c?`№${m6c.sourceId} ${m6c.sourceCode} · new family${m6c.currentFamily} · target №${m6c.targetId} · ${m6Paths} · ACTIVE: ${m6Active} · M5 exact-occupied: ${(m6.occupied||[]).length}`:'M6 начнёт forward-работу с факта №268289');const m6Body=document.getElementById('tmM6Archive');if(m6Body){m6Body.innerHTML=(m6.history||[]).slice(-6).reverse().map(x=>`<tr><td>№${x.targetId}</td><td>№${x.sourceId} · ${x.sourceCode}</td><td>${x.triples?.length?x.triples.join(' / '):'—'}</td><td>${x.targetFact?`${x.targetFact.code} · ${x.check}`:'ожидает факт'}</td></tr>`).join('');}const m6El=document.getElementById('tmM6');if(m6El)m6El.className=m6c?.triples?.length?'hit':'neutral';"""
+              if render_marker not in s: raise SystemExit('M1 render marker not found')
+              s=s.replace(render_marker,code+render_marker,1)
+
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('app.js'); s=p.read_text(encoding='utf-8'); s=re.sub(r"const APP_VERSION='[^']+';",f"const APP_VERSION='{VER}';",s,count=1); p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html'); s=p.read_text(encoding='utf-8')
+          s=re.sub(r'v1\.2\.9',f'v{VER}',s)
+          s=re.sub(r"window\.TOP3_BUILD = '[^']+';",f"window.TOP3_BUILD = '{VER}';",s,count=1)
+          s=re.sub(r'\?v=1\.2\.9',f'?v={VER}',s)
+          if 'm6-repeat-family-v2.js' not in s:
+              s=s.replace(f'<script src="./triple-methods.js?v={VER}"></script>',f'<script src="./m6-repeat-family-v2.js?v={VER}"></script>\n  <script src="./triple-methods.js?v={VER}"></script>',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('sw.js'); s=p.read_text(encoding='utf-8')
+          s=re.sub(r"const CACHE_NAME = '[^']+';",f"const CACHE_NAME = 'yulia-top3-v1-2-10-m6-repeat-family-v2';",s,count=1)
+          s=s.replace('?v=1.2.9',f'?v={VER}')
+          if 'm6-repeat-family-v2.js' not in s:
+              s=s.replace(f"'./triple-methods.css?v={VER}', './triple-methods.js?v={VER}',",f"'./triple-methods.css?v={VER}', './m6-repeat-family-v2.js?v={VER}', './triple-methods.js?v={VER}',",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('manifest.webmanifest'); s=p.read_text(encoding='utf-8').replace('1.2.9','1.2.10').replace('1.2.8','1.2.10'); p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit M6 V2
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add triple-methods.js app.js index.html sw.js manifest.webmanifest m6-repeat-family-v2.js
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "TOP3 v1.2.10: add M6 REPEAT-FAMILY-150 V2"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
