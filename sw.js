@@ -1,11 +1,11 @@
-const CACHE_NAME = 'yulia-top3-v1-2-11-m6-leaders30';
+const CACHE_NAME = 'yulia-top3-v1-2-12-m6-off';
 const OFFLINE_URL = './index.html';
 const LIVE_FILE = './top3-history.json';
 const ASSETS = [
-  './index.html', './repair.html', './styles.css?v=1.2.11', './top3-storage-indexeddb.js?v=1.0.1', './app.js?v=1.2.11', './live-source-fix.js?v=1.2.11',
-  './mirror-method.css?v=1.2.11', './mirror-method.js?v=1.2.11',
-  './triple-methods.css?v=1.2.11', './m6-repeat-family-v2.js?v=1.2.11', './triple-methods.js?v=1.2.11',
-  './top3-data.js?v=1.2.11', './manifest.webmanifest',
+  './index.html', './repair.html', './styles.css?v=1.2.12', './top3-storage-indexeddb.js?v=1.0.1', './app.js?v=1.2.12', './live-source-fix.js?v=1.2.12',
+  './mirror-method.css?v=1.2.12', './mirror-method.js?v=1.2.12',
+  './triple-methods.css?v=1.2.12', './triple-methods.js?v=1.2.12',
+  './top3-data.js?v=1.2.12', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 
