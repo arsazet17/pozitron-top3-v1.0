@@ -1,0 +1,33 @@
+name: Apply repeat families 150 table
+
+on:
+  push:
+    paths:
+      - 'patch-repeat-families-150.py'
+      - '.github/workflows/apply-repeat-families-150.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add repeat families 150 table
+        run: python3 patch-repeat-families-150.py
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add triple-methods.js app.js index.html sw.js manifest.webmanifest
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "TOP3 v1.2.13: repeat families table for last 150 draws"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
