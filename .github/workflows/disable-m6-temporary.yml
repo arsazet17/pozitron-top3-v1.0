@@ -1,0 +1,82 @@
+name: Temporarily disable M6
+
+on:
+  push:
+    paths:
+      - '.github/workflows/disable-m6-temporary.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Disable M6 in Yulia TOP-3
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          VER='1.2.12'
+
+          p=Path('triple-methods.js')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r"const VERSION='[^']+';", f"const VERSION='{VER}';", s, count=1)
+
+          # Remove the M6 UI block but keep the following M1/M2/M3 block.
+          s,n=re.subn(r'<div class="tm-leader tm-m6">.*?</div><div class="tm-method-grid">', '<div class="tm-method-grid">', s, count=1, flags=re.S)
+          if n==0 and 'tm-m6' in s:
+              raise SystemExit('Yulia: failed to remove M6 UI block')
+
+          # M6 must not contribute to FROZEN.
+          s=re.sub(
+              r"const m6=window\.Top3M6V2\?\.compute\(sourceDraws\(\),\{exactOccupiedDraws:window\.TOP3_M5_EXACT_OCCUPIED_DRAWS\|\|\[\]\}\)\|\|\{current:null,history:\[\],occupied:\[\]\};const m6Signals=m6\.current\?\.triples\|\|\[\];setText\('tmFrozen',fmtList\(\[\.\.\.\(s\.frozen\|\|\[\]\),\.\.\.m6Signals\]\)\);",
+              "setText('tmFrozen',fmtList(s.frozen||[]));",
+              s,count=1)
+
+          # Remove all M6 render calculations between beacon rendering and M1 rendering.
+          s,n2=re.subn(r"const m6c=m6\.current;.*?(?=setText\('tmM1')", '', s, count=1, flags=re.S)
+          if n2==0 and ('tmM6' in s or 'm6.current' in s):
+              raise SystemExit('Yulia: failed to remove M6 render logic')
+
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r'\n\s*<script src="\./m6-repeat-family-v2\.js\?v=[^"]+"></script>', '', s)
+          s=s.replace('1.2.11',VER).replace('1.2.10',VER)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('app.js')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r"const APP_VERSION='[^']+';", f"const APP_VERSION='{VER}';", s, count=1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('sw.js')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r"const CACHE_NAME = '[^']+';", "const CACHE_NAME = 'yulia-top3-v1-2-12-m6-off';", s, count=1)
+          s=s.replace('1.2.11',VER).replace('1.2.10',VER)
+          s=s.replace("  './m6-repeat-family-v2.js?v=1.2.12',\n",'').replace(" './m6-repeat-family-v2.js?v=1.2.12',",'')
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('manifest.webmanifest')
+          s=p.read_text(encoding='utf-8').replace('1.2.11',VER).replace('1.2.10',VER)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit M6 disabled build
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add triple-methods.js index.html app.js sw.js manifest.webmanifest
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "TOP3 v1.2.12: temporarily disable M6"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
