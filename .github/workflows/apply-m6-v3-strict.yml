@@ -30,10 +30,12 @@ jobs:
 
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          s=re.sub(r'v1\.2\.13',f'v{ver}',s)
-          s=s.replace("window.TOP3_BUILD = '1.2.13';",f"window.TOP3_BUILD = '{ver}';")
+          s=s.replace('1.2.13','1.2.14')
+          s=re.sub(r"window\.TOP3_BUILD = '[^']+';",f"window.TOP3_BUILD = '{ver}';",s,count=1)
           if 'm6-v3-strict.js' not in s:
-              s=s.replace('<script src="./triple-methods.js?v=1.2.14"></script>','<script src="./triple-methods.js?v=1.2.14"></script>\n  <script src="./m6-v3-strict.js?v=1.2.14"></script>')
+              marker='<script src="./triple-methods.js?v=1.2.14"></script>'
+              if marker not in s: raise SystemExit('triple script marker not found')
+              s=s.replace(marker,marker+'\n  <script src="./m6-v3-strict.js?v=1.2.14"></script>',1)
           p.write_text(s,encoding='utf-8')
 
           p=Path('sw.js')
@@ -41,7 +43,9 @@ jobs:
           s=re.sub(r"const CACHE_NAME = '[^']+';", "const CACHE_NAME = 'yulia-top3-v1-2-14-m6-v3-strict';", s, count=1)
           s=s.replace('1.2.13','1.2.14')
           if "'./m6-v3-strict.js?v=1.2.14'" not in s:
-              s=s.replace("'./triple-methods.css?v=1.2.14', './triple-methods.js?v=1.2.14',","'./triple-methods.css?v=1.2.14', './triple-methods.js?v=1.2.14', './m6-v3-strict.js?v=1.2.14',")
+              marker="'./triple-methods.css?v=1.2.14', './triple-methods.js?v=1.2.14',"
+              if marker not in s: raise SystemExit('sw triple marker not found')
+              s=s.replace(marker,marker+" './m6-v3-strict.js?v=1.2.14',",1)
           p.write_text(s,encoding='utf-8')
 
           p=Path('manifest.webmanifest')
@@ -58,7 +62,7 @@ jobs:
             echo "No changes"
             exit 0
           fi
-          git commit -m "TOP3 v1.2.14: enable M6 V3 strict third+ repeat family"
+          git commit -m "TOP3 v1.2.14: wire M6 V3 strict assets"
           git fetch origin main
           git rebase origin/main
           git push origin HEAD:main
