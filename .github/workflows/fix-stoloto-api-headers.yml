@@ -1,0 +1,67 @@
+name: Fix Stoloto API headers
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-stoloto-api-headers.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add current Stoloto web-client headers
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('update-top3-api.mjs')
+          s=p.read_text(encoding='utf-8')
+          old="""const HEADERS = {
+  accept: 'application/json, text/plain, */*',
+  'accept-language': 'ru-RU,ru;q=0.9,en;q=0.7',
+  referer: 'https://m.stoloto.ru/',
+  'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36'
+};"""
+          new="""const HEADERS = {
+  accept: 'application/json, text/plain, */*',
+  'accept-language': 'ru-RU,ru;q=0.9,en;q=0.7',
+  referer: 'https://www.stoloto.ru/',
+  'content-type': 'application/x-www-form-urlencoded',
+  'device-type': 'STOLOTO',
+  'device-platform': 'DESKTOP',
+  'gosloto-partner': 'bXMjXFRXZ3coWXh6R3s1NTdUX3dnWlBMLUxmdg',
+  'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'
+};"""
+          if new in s:
+              print('Headers already current')
+          elif old in s:
+              s=s.replace(old,new,1)
+              p.write_text(s,encoding='utf-8')
+              print('Patched current Stoloto headers')
+          else:
+              raise SystemExit('HEADERS block did not match expected source')
+          PY
+
+      - name: Validate updater
+        run: node --check update-top3-api.mjs
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          if git diff --quiet -- update-top3-api.mjs; then
+            echo 'No changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add update-top3-api.mjs
+          git commit -m 'fix: send current Stoloto partner and device headers'
+          git pull --rebase origin main
+          git push origin HEAD:main
