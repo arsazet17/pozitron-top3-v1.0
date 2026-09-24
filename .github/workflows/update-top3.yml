@@ -66,3 +66,5 @@ jobs:
           git fetch origin main
           git rebase origin/main
           git push origin HEAD:main
+
+# 24.09.2026: updater now sends the current Stoloto partner/device headers used by the official web client.
