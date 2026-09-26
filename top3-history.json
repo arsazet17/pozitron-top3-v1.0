@@ -2,10 +2,10 @@
   "schema": 4,
   "fullArchive": true,
   "source": "Полный архив TOP-3 · официальный API Столото (archive+info-new)",
-  "updatedAt": "2026-09-26T12:00:52.985Z",
-  "latest": 268622,
+  "updatedAt": "2026-09-26T12:30:42.725Z",
+  "latest": 268623,
   "archiveFrom": 247987,
-  "archiveTo": 268622,
+  "archiveTo": 268623,
   "regularTimes": [
     "00:25",
     "00:55",
@@ -11914,9 +11914,39 @@
         "368",
         "251"
       ]
+    },
+    {
+      "id": "server-auto-268624",
+      "automatic": true,
+      "server": true,
+      "createdAt": "2026-09-26T12:30:42.634Z",
+      "targetId": 268624,
+      "targetDate": "26.09.26",
+      "targetTime": "15:55",
+      "baseId": 268576,
+      "baseCode": "350",
+      "delta": "434",
+      "deltaVariants": [
+        "434",
+        "056",
+        "280"
+      ],
+      "variants": [
+        "784",
+        "306",
+        "530"
+      ]
     }
   ],
   "draws": [
+    {
+      "id": 268623,
+      "date": "26.09.26",
+      "time": "15:25",
+      "a": 3,
+      "b": 2,
+      "c": 3
+    },
     {
       "id": 268622,
       "date": "26.09.26",
