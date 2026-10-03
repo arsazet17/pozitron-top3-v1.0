@@ -469,3 +469,121 @@
     hideBacktests();
   });
 })();
+
+(() => {
+  'use strict';
+
+  // v1.2.15 sync repair: the server source name changed from the old OAuth label
+  // to the full official API label. The old gate therefore refused to repair a
+  // harmless stale overlap and then blocked every newer draw. Keep the safety
+  // check, but validate the recent overlap instead of requiring every historical
+  // overlapping row to be byte-for-byte identical.
+  function trustedOfficialSource(source) {
+    const text = String(source || '').trim();
+    return /официальн(?:ый|ого|ая).*столото/i.test(text)
+      || /столото.*официальн(?:ый|ого|ая)/i.test(text)
+      || /^Официальный Столото · OAuth · (двойная|тройная) проверка$/i.test(text);
+  }
+
+  function sameOnlineDraw(left, right) {
+    return !!left && !!right
+      && Number(left.id) === Number(right.id)
+      && String(left.date) === String(right.date)
+      && String(left.time) === String(right.time)
+      && Number(left.a) === Number(right.a)
+      && Number(left.b) === Number(right.b)
+      && Number(left.c) === Number(right.c);
+  }
+
+  function validRegularOnlineRows(items) {
+    if (!Array.isArray(items)) return [];
+    return items.filter(draw => isValidDraw(draw) && DRAW_TIMES.includes(draw.time));
+  }
+
+  if (typeof isVerifiedOfficialSource === 'function') {
+    isVerifiedOfficialSource = function isVerifiedOfficialSourceV1215(source) {
+      return trustedOfficialSource(source);
+    };
+  }
+
+  if (typeof repairVerifiedOnlineOverlap === 'function') {
+    repairVerifiedOnlineOverlap = async function repairVerifiedOnlineOverlapV1215(items, source) {
+      if (!trustedOfficialSource(source) || !db || !storageReady) return 0;
+
+      const valid = validRegularOnlineRows(items);
+      if (!valid.length) return 0;
+
+      const localById = new Map(draws.map(draw => [Number(draw.id), draw]));
+      const overlap = valid
+        .filter(draw => localById.has(Number(draw.id)))
+        .sort((left, right) => Number(right.id) - Number(left.id));
+
+      // Work only on the newest overlap. Old historical corrections must never
+      // prevent fresh draws from being added.
+      const control = overlap.slice(0, 120);
+      if (control.length < 3) return 0;
+
+      const exact = control.filter(draw => sameOnlineDraw(draw, localById.get(Number(draw.id))));
+      const agreement = exact.length / control.length;
+
+      // Before changing local facts, require at least three exact anchors and,
+      // for a meaningful sample, at least 80% agreement with the official feed.
+      if (exact.length < 3) return 0;
+      if (control.length >= 10 && agreement < 0.80) return 0;
+
+      const mismatches = control.filter(draw => !sameOnlineDraw(draw, localById.get(Number(draw.id))));
+      if (!mismatches.length) return 0;
+
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      for (const draw of mismatches) {
+        store.put({
+          id:Number(draw.id),
+          date:String(draw.date),
+          time:String(draw.time),
+          a:Number(draw.a),
+          b:Number(draw.b),
+          c:Number(draw.c)
+        });
+      }
+      await withTimeout(txDone(tx), 12000, 'Исправление свежей контрольной зоны');
+      await loadAllDraws();
+      console.info(`TOP3 sync repair: исправлено строк в свежей контрольной зоне: ${mismatches.length}`);
+      return mismatches.length;
+    };
+  }
+
+  if (typeof validateOnlineBatch === 'function') {
+    validateOnlineBatch = function validateOnlineBatchV1215(items) {
+      if (!Array.isArray(items) || !items.length) throw new Error('пустой ответ источника');
+
+      const valid = validRegularOnlineRows(items);
+      if (valid.length < 3) throw new Error('источник вернул слишком мало проверяемых строк');
+
+      const ids = new Set(valid.map(draw => Number(draw.id)));
+      if (ids.size !== valid.length) throw new Error('источник вернул дубли');
+
+      const localById = new Map(draws.map(draw => [Number(draw.id), draw]));
+      const overlap = valid
+        .filter(draw => localById.has(Number(draw.id)))
+        .sort((left, right) => Number(right.id) - Number(left.id));
+
+      if (overlap.length < 3) throw new Error('недостаточно контрольных совпадений с локальным архивом');
+
+      // Only the newest control window protects the import. A single old
+      // correction elsewhere in the archive no longer freezes all future syncs.
+      const control = overlap.slice(0, 20);
+      const exact = control.filter(draw => sameOnlineDraw(draw, localById.get(Number(draw.id))));
+      const mismatches = control.length - exact.length;
+
+      if (exact.length < 3) {
+        throw new Error('свежая контрольная сверка не пройдена: меньше трёх точных совпадений');
+      }
+      if (mismatches > Math.max(2, Math.floor(control.length * 0.25))) {
+        throw new Error(`свежая контрольная сверка не пройдена: расхождений ${mismatches} из ${control.length}`);
+      }
+
+      return valid;
+    };
+  }
+})();
