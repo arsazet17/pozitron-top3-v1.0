@@ -6,13 +6,14 @@
   <meta name="theme-color" content="#071b4d">
   <title>Восстановление Yulia TOP-3</title>
   <style>
-    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#030817;color:#fff}.card{width:min(560px,100%);padding:26px;border:1px solid #2e6c83;border-radius:24px;background:#071b4d;box-shadow:0 18px 60px #0008}h1{margin:0 0 14px;font-size:28px}.status{font-size:18px;line-height:1.55;color:#dcecff}.ok{color:#65e6a5}.error{color:#ffb1bd}button{width:100%;margin-top:18px;padding:16px;border:0;border-radius:16px;font-size:18px;font-weight:800;background:#63dcf1;color:#03152d}
+    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#030817;color:#fff}.card{width:min(620px,100%);padding:26px;border:1px solid #2e6c83;border-radius:24px;background:#071b4d;box-shadow:0 18px 60px #0008}h1{margin:0 0 14px;font-size:28px}.status{font-size:18px;line-height:1.55;color:#dcecff}.meta{margin-top:14px;padding:12px 14px;border-radius:14px;background:#041334;color:#b9d7ff;font-size:14px;line-height:1.5}.ok{color:#65e6a5}.error{color:#ffb1bd}button{width:100%;margin-top:18px;padding:16px;border:0;border-radius:16px;font-size:18px;font-weight:800;background:#63dcf1;color:#03152d}
   </style>
 </head>
 <body>
   <main class="card">
     <h1>Восстановление TOP-3</h1>
-    <p id="status" class="status">Проверяю только три строки, которые мог исказить старый общий файл. Остальной архив не меняется.</p>
+    <p id="status" class="status">Загружаю полный официальный архив и восстанавливаю недостающие тиражи…</p>
+    <div id="meta" class="meta">Локальная база не удаляется: официальные строки добавляются и исправляются по номеру тиража.</div>
     <button id="openBtn" hidden>Открыть приложение</button>
   </main>
 <script>
@@ -20,24 +21,64 @@
 const DB_NAME='yulia-top3-db';
 const DB_VERSION=1;
 const STORE='draws';
-const BAD=new Map([
-  [267359,{a:3,b:4,c:6}],
-  [267358,{a:3,b:5,c:7}],
-  [267357,{a:3,b:6,c:7}]
-]);
-const VERIFIED=[
-  {id:267356,date:'30.07.26',time:'09:40',a:8,b:8,c:3},
-  {id:267355,date:'30.07.26',time:'07:40',a:6,b:3,c:8},
-  {id:267354,date:'30.07.26',time:'06:40',a:0,b:3,c:9}
-];
+const FULL_URL='./top3-history.json';
 const status=document.getElementById('status');
+const meta=document.getElementById('meta');
 const openBtn=document.getElementById('openBtn');
-const openApp=()=>location.replace('./?v=1.0.12-repair');
+const openApp=()=>location.replace(`./?repair=${Date.now()}`);
 openBtn.addEventListener('click',openApp);
-function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,DB_VERSION);req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Не удалось открыть локальную базу'));});}
-function reqResult(req){return new Promise((resolve,reject)=>{req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error);});}
-function txDone(tx){return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
-(async()=>{try{if(!('indexedDB'in window))throw new Error('IndexedDB не поддерживается этим браузером');const database=await openDB();const tx=database.transaction(STORE,'readwrite');const store=tx.objectStore(STORE);let removed=0;for(const [id,sig]of BAD){const row=await reqResult(store.get(id));if(row&&row.a===sig.a&&row.b===sig.b&&row.c===sig.c){store.delete(id);removed++;}}for(const row of VERIFIED)store.put({...row});await txDone(tx);database.close();localStorage.removeItem('yulia-top3-auto-status-v1');for(const registration of await navigator.serviceWorker?.getRegistrations?.()||[])await registration.unregister();for(const key of await caches.keys())await caches.delete(key);status.className='status ok';status.textContent=`Готово: удалено ошибочных строк — ${removed}. Проверенный архив сохранён. Открываю приложение…`;openBtn.hidden=false;setTimeout(openApp,1200);}catch(error){status.className='status error';status.textContent='Не удалось выполнить восстановление: '+(error?.message||error)+'. Архив не удалялся.';openBtn.hidden=false;}})();
+function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,DB_VERSION);req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Не удалось открыть локальную базу'));req.onblocked=()=>reject(new Error('Локальная база заблокирована другой вкладкой'));});}
+function txDone(tx){return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Ошибка записи'));tx.onabort=()=>reject(tx.error||new Error('Запись отменена'));});}
+function validRow(row){return Number.isInteger(Number(row?.id))&&Number(row.id)>0&&/^\d{2}\.\d{2}\.\d{2}$/.test(String(row?.date||''))&&/^\d{2}:\d{2}$/.test(String(row?.time||''))&&[row?.a,row?.b,row?.c].every(value=>Number.isInteger(Number(value))&&Number(value)>=0&&Number(value)<=9);}
+async function countRows(database){return new Promise((resolve,reject)=>{const req=database.transaction(STORE,'readonly').objectStore(STORE).count();req.onsuccess=()=>resolve(req.result||0);req.onerror=()=>reject(req.error);});}
+(async()=>{
+  try{
+    if(!('indexedDB'in window))throw new Error('IndexedDB не поддерживается этим браузером');
+    status.textContent='1/4 · Загружаю полный официальный архив TOP-3…';
+    const response=await fetch(`${FULL_URL}?repair=${Date.now()}`,{cache:'no-store',headers:{Accept:'application/json'}});
+    if(!response.ok)throw new Error(`архив не загрузился: HTTP ${response.status}`);
+    const payload=await response.json();
+    const sourceRows=Array.isArray(payload)?payload:payload?.draws;
+    if(!Array.isArray(sourceRows)||sourceRows.length<10000)throw new Error('полный архив вернул слишком мало строк');
+    const rows=sourceRows.filter(validRow).map(row=>({id:Number(row.id),date:String(row.date),time:String(row.time),a:Number(row.a),b:Number(row.b),c:Number(row.c)}));
+    if(rows.length<10000)throw new Error('после проверки в архиве осталось слишком мало корректных строк');
+    const ids=new Set(rows.map(row=>row.id));
+    if(ids.size!==rows.length)throw new Error('в официальном архиве обнаружены дубли номеров');
+    const latest=Math.max(...rows.map(row=>row.id));
+    const earliest=Math.min(...rows.map(row=>row.id));
+    meta.textContent=`Источник: ${payload?.source||'официальный архив TOP-3'} · найдено ${rows.length.toLocaleString('ru-RU')} строк · №${earliest}…№${latest}`;
+
+    status.textContent='2/4 · Открываю локальную базу…';
+    const database=await openDB();
+    const before=await countRows(database);
+
+    status.textContent='3/4 · Добавляю пропущенные тиражи и исправляю совпадающие номера…';
+    const batchSize=400;
+    for(let offset=0;offset<rows.length;offset+=batchSize){
+      const tx=database.transaction(STORE,'readwrite');
+      const store=tx.objectStore(STORE);
+      for(const row of rows.slice(offset,offset+batchSize))store.put(row);
+      await txDone(tx);
+      status.textContent=`3/4 · Восстановлено ${Math.min(offset+batchSize,rows.length).toLocaleString('ru-RU')} из ${rows.length.toLocaleString('ru-RU')}…`;
+    }
+    const after=await countRows(database);
+    database.close();
+
+    status.textContent='4/4 · Очищаю старый кэш приложения…';
+    try{localStorage.removeItem('yulia-top3-auto-status-v1');}catch{}
+    try{for(const registration of await navigator.serviceWorker?.getRegistrations?.()||[])await registration.unregister();}catch{}
+    try{for(const key of await caches.keys())await caches.delete(key);}catch{}
+
+    status.className='status ok';
+    status.textContent=`Готово. Было ${before.toLocaleString('ru-RU')} строк, стало ${after.toLocaleString('ru-RU')}. Последний официальный тираж №${latest}. Открываю приложение…`;
+    openBtn.hidden=false;
+    setTimeout(openApp,1400);
+  }catch(error){
+    status.className='status error';
+    status.textContent='Не удалось выполнить восстановление: '+(error?.message||error)+'. Локальная база не удалена.';
+    openBtn.hidden=false;
+  }
+})();
 </script>
 </body>
 </html>
