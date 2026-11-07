@@ -1,11 +1,11 @@
-const CACHE_NAME = 'yulia-top3-v1-2-14-m6-v3-strict';
+const CACHE_NAME = 'yulia-top3-v1-2-15-verified-history-backfill';
 const OFFLINE_URL = './index.html';
 const LIVE_FILE = './top3-history.json';
 const ASSETS = [
-  './index.html', './repair.html', './styles.css?v=1.2.14', './top3-storage-indexeddb.js?v=1.0.1', './app.js?v=1.2.14', './live-source-fix.js?v=1.2.14',
-  './mirror-method.css?v=1.2.14', './mirror-method.js?v=1.2.14',
-  './triple-methods.css?v=1.2.14', './triple-methods.js?v=1.2.14', './m6-v3-strict.js?v=1.2.14',
-  './top3-data.js?v=1.2.14', './manifest.webmanifest',
+  './index.html', './repair.html', './styles.css?v=1.2.15', './top3-storage-indexeddb.js?v=1.0.1', './app.js?v=1.2.15', './live-source-fix.js?v=1.2.15', './top3-backfill.js?v=1.2.15',
+  './mirror-method.css?v=1.2.15', './mirror-method.js?v=1.2.15',
+  './triple-methods.css?v=1.2.15', './triple-methods.js?v=1.2.15', './m6-v3-strict.js?v=1.2.15',
+  './top3-data.js?v=1.2.15', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-top3-yulia-v1.png'
 ];
 
